@@ -84,6 +84,21 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
+      - name: Restore workspace from VPS (auto-memory)
+        if: ${{ secrets.VPS_SSH_KEY != '' }}
+        run: |
+          # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
+          $key = "$env:USERPROFILE\.ssh\vps_key"
+          New-Item -ItemType Directory -Path (Split-Path $key) -Force | Out-Null
+          "${{ secrets.VPS_SSH_KEY }}" | Out-File -LiteralPath $key -Encoding ascii -NoNewline
+          icacls $key /inheritance:r /grant:r "$env:USERNAME:F" | Out-Null
+          New-Item -ItemType Directory -Path 'C:\Work' -Force | Out-Null
+          $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
+          Write-Host "Restoring C:\Work from VPS..."
+          & scp @ssh -r "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/*" 'C:\Work\' 2>$null
+          Write-Host "Restore done (empty on first run is normal)."
+          echo "VPS_SYNC=1" >> $env:GITHUB_ENV
+
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
@@ -106,6 +121,7 @@ jobs:
 
           $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
           # Keep runner alive; self-heal TermService/Tailscale so RDP stays up to the 6h job cap
+          $n = 0
           while ($true) {
               if ((Get-Service TermService).Status -ne 'Running') {
                   Start-Service TermService
@@ -117,5 +133,13 @@ jobs:
               }
               $ok = (Test-NetConnection -ComputerName '127.0.0.1' -Port 3389 -WarningAction SilentlyContinue).TcpTestSucceeded
               Write-Host "[$(Get-Date)] RDP Active (3389=$ok) - Use Cancel workflow to terminate"
+              # Auto-save workspace to VPS every ~15 min so nothing is lost at the 6h wipe
+              $n++
+              if ($env:VPS_SYNC -eq '1' -and ($n % 3 -eq 0)) {
+                  $key = "$env:USERPROFILE\.ssh\vps_key"
+                  $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
+                  & scp @ssh -r 'C:\Work\*' "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/" 2>$null
+                  Write-Host "[$(Get-Date)] Workspace auto-saved to VPS"
+              }
               Start-Sleep -Seconds 300
           }
