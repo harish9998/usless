@@ -104,6 +104,15 @@ jobs:
           Write-Host "Restore done (empty on first run is normal)."
           echo "VPS_SYNC=1" >> $env:GITHUB_ENV
 
+      - name: Setup personal stack (auto)
+        run: |
+          # Runs YOUR C:\Work\Install-MyStack.ps1 if you created it (edit once, applied every rebirth).
+          if (Test-Path 'C:\Work\Install-MyStack.ps1') {
+              powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\Install-MyStack.ps1'
+          } else {
+              Write-Host "No C:\Work\Install-MyStack.ps1 - skipping (create it to auto-install your tools)."
+          }
+
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
