@@ -88,6 +88,12 @@ jobs:
         if: ${{ secrets.VPS_SSH_KEY != '' }}
         run: |
           # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
+          # Skips cleanly until VPS_USER is set and the VPS runs OpenSSH Server.
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.VPS_USER }}")) {
+              Write-Host "VPS_USER not set - skipping restore (one-time VPS setup pending)."
+              exit 0
+          }
+          # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
           $key = "$env:USERPROFILE\.ssh\vps_key"
           New-Item -ItemType Directory -Path (Split-Path $key) -Force | Out-Null
           "${{ secrets.VPS_SSH_KEY }}" | Out-File -LiteralPath $key -Encoding ascii -NoNewline
