@@ -155,5 +155,19 @@ jobs:
                   & scp @ssh -r 'C:\Work\*' "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/" 2>$null
                   Write-Host "[$(Get-Date)] Workspace auto-saved to VPS"
               }
+              # Heartbeat (~5 min cadence; 60s would spam logs/minutes for zero gain here)
+              if ($env:VPS_SYNC -eq '1') {
+                  $hb = @{
+                      runner_id = "gh-runner-$env:GITHUB_RUN_ID"
+                      timestamp = (Get-Date).ToString('o')
+                      state = 'healthy'
+                      disk_free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+                      memory_free_gb = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB / 1024, 1)
+                      work_revision = if (Test-Path 'C:\Work') { (Get-ChildItem 'C:\Work' -Recurse -File | Measure-Object).Count } else { 0 }
+                  } | ConvertTo-Json -Compress
+                  $hb | Out-File -LiteralPath "$env:TEMP\heartbeat.json" -Encoding ascii -NoNewline
+                  $key = "$env:USERPROFILE\.ssh\vps_key"
+                  & scp @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15') "$env:TEMP\heartbeat.json" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/heartbeats/gh-runner-$env:GITHUB_RUN_ID.json" 2>$null
+              }
               Start-Sleep -Seconds 300
           }
