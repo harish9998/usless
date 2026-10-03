@@ -108,6 +108,12 @@ jobs:
           Write-Host "Restoring C:\Work from VPS..."
           & scp @ssh -r "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/*" 'C:\Work\' 2>$null
           Write-Host "Restore done (empty on first run is normal)."
+          # Profile layer (opencode/claude/git/profiles): best-effort, never red.
+          $pet = 'C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1'
+          if (Test-Path $pet) {
+              powershell -NoProfile -ExecutionPolicy Bypass -File $pet -Mode Restore
+              if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: profile restore degraded - continuing.' }
+          } else { Write-Host 'No profile toolkit - skipping.' }
           echo "VPS_SYNC=1" >> $env:GITHUB_ENV
 
       - name: Setup personal stack (auto)
@@ -158,6 +164,12 @@ jobs:
               if ($env:VPS_SYNC -eq '1' -and ($n % 3 -eq 0)) {
                   $key = "$env:USERPROFILE\.ssh\vps_key"
                   $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
+                  # Capture profile/app state into C:\Work first so the snapshot includes it.
+                  $pet = 'C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1'
+                  if (Test-Path $pet) {
+                      powershell -NoProfile -ExecutionPolicy Bypass -File $pet -Mode Capture
+                      if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: profile capture degraded - snapshotting anyway.' }
+                  }
                   & scp @ssh -r 'C:\Work\*' "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/" 2>$null
                   Write-Host "[$(Get-Date)] Workspace auto-saved to VPS"
               }
