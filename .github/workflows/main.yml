@@ -125,6 +125,22 @@ jobs:
               Write-Host "No C:\Work\Install-MyStack.ps1 - skipping (create it to auto-install your tools)."
           }
 
+      - name: Environment bootstrap (Telegram snapshots)
+        run: |
+          # Full reconstruction from Telegram Drive. Best-effort: needs TG_API_KEY secret
+          # AND the Telegram Drive app running signed-in on this runner; skips cleanly otherwise.
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.TG_API_KEY }}")) {
+              Write-Host "TG_API_KEY not set - skipping environment bootstrap."
+              exit 0
+          }
+          if (-not (Test-Path 'C:\Work\envsys\Invoke-EnvBootstrap.ps1')) {
+              Write-Host "envsys not in C:\Work yet - skipping (seed it once, sync preserves it)."
+              exit 0
+          }
+          $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Invoke-EnvBootstrap.ps1' -BackendType TelegramRest -WorkDir 'C:\Work'
+          if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: environment bootstrap degraded - continuing with basic RDP." }
+
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
@@ -186,6 +202,13 @@ jobs:
                   $hb | Out-File -LiteralPath "$env:TEMP\heartbeat.json" -Encoding ascii -NoNewline
                   $key = "$env:USERPROFILE\.ssh\vps_key"
                   & scp @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15') "$env:TEMP\heartbeat.json" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/heartbeats/gh-runner-$env:GITHUB_RUN_ID.json" 2>$null
+              }
+              # Full environment snapshot to Telegram (~15 min, only when TG key + envsys present)
+              if (($n % 3 -eq 0) -and (-not [string]::IsNullOrWhiteSpace("${{ secrets.TG_API_KEY }}")) -and (Test-Path 'C:\Work\envsys\Publish-EnvSnapshot.ps1')) {
+                  $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+                  powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Publish-EnvSnapshot.ps1' -BackendType TelegramRest -WorkDir 'C:\Work'
+                  if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: Telegram snapshot failed - previous snapshot untouched.' }
+                  Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
               }
               Start-Sleep -Seconds 300
           }
