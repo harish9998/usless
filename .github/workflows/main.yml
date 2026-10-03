@@ -187,7 +187,8 @@ jobs:
                       if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: profile capture degraded - snapshotting anyway.' }
                   }
                   & scp @ssh -r 'C:\Work\*' "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/" 2>$null
-                  Write-Host "[$(Get-Date)] Workspace auto-saved to VPS"
+                  if ($LASTEXITCODE -eq 0) { Write-Host "[$(Get-Date)] Workspace auto-saved to VPS" }
+                  else { Write-Host "[$(Get-Date)] WARNING: workspace auto-save FAILED - will retry next cycle" }
               }
               # Heartbeat (~5 min cadence; 60s would spam logs/minutes for zero gain here)
               if ($env:VPS_SYNC -eq '1') {
