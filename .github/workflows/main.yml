@@ -87,7 +87,7 @@ jobs:
       - name: Restore workspace from VPS (auto-memory)
         run: |
           # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
-          # Skips cleanly until VPS_USER/VPS_SSH_KEY are set and the VPS runs OpenSSH Server.
+          # Never fails the run: memory is best-effort until the VPS side is armed.
           if ([string]::IsNullOrWhiteSpace("${{ secrets.VPS_SSH_KEY }}") -or [string]::IsNullOrWhiteSpace("${{ secrets.VPS_USER }}")) {
               Write-Host "VPS sync secrets not set - skipping restore (one-time VPS setup pending)."
               exit 0
@@ -99,6 +99,12 @@ jobs:
           icacls $key /inheritance:r /grant:r "$env:USERNAME:F" | Out-Null
           New-Item -ItemType Directory -Path 'C:\Work' -Force | Out-Null
           $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
+          # Probe first: a half-configured VPS must degrade to skip, never to a red run.
+          & ssh @ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "echo ok" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "WARNING: VPS SSH unreachable - continuing without memory (run stays green)."
+              exit 0
+          }
           Write-Host "Restoring C:\Work from VPS..."
           & scp @ssh -r "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/*" 'C:\Work\' 2>$null
           Write-Host "Restore done (empty on first run is normal)."
