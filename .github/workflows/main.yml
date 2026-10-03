@@ -9,6 +9,9 @@ jobs:
     timeout-minutes: 350
 
     steps:
+      - name: Checkout (envsys runtime)
+        uses: actions/checkout@v4
+
       - name: Configure Core RDP Settings
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
@@ -31,6 +34,14 @@ jobs:
           Set-Service -Name TermService -StartupType Automatic
           Start-Service -Name TermService -ErrorAction SilentlyContinue
           Restart-Service -Name TermService -Force
+
+      - name: Seed envsys runtime (first boot only, never overwrite restored state)
+        run: |
+          New-Item -ItemType Directory -Path 'C:\Work' -Force | Out-Null
+          if (-not (Test-Path 'C:\Work\envsys\Storage-Backend.ps1')) {
+              Copy-Item -LiteralPath "${{ github.workspace }}\envsys" -Destination 'C:\Work\envsys' -Recurse -Force
+              Write-Host "Seeded C:\Work\envsys from repo."
+          } else { Write-Host "C:\Work\envsys present (restored) - leaving untouched." }
 
       - name: Create RDP User with Fixed Password
         run: |

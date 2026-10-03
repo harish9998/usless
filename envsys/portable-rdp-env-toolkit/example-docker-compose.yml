@@ -1,0 +1,11 @@
+services:
+  example-agent:
+    image: alpine:3.20
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do date >> /data/heartbeat.log; sleep 60; done"]
+    volumes:
+      - C:/Work/docker/data/example-agent:/data
+
+# Pattern:
+# - container/image = disposable/recreatable
+# - host directory under C:/Work/docker/data = persistent and included in VPS snapshots

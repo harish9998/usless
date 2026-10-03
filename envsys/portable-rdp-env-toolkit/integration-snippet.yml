@@ -1,0 +1,15 @@
+# Add these steps to the runner bootstrap AFTER C:\Work exists and BEFORE your existing Install-MyStack step.
+
+- name: Restore persistent user environment
+  shell: pwsh
+  run: |
+    powershell -NoProfile -ExecutionPolicy Bypass -File C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1 -Mode Restore
+
+- name: Bootstrap complete environment
+  shell: pwsh
+  run: |
+    powershell -NoProfile -ExecutionPolicy Bypass -File C:\Work\PersistentEnvironmentToolkit\Restore-Bootstrap.ps1
+
+# Before every existing Snapshot-VPSWork.ps1 call, capture profile/application state first:
+# powershell -NoProfile -ExecutionPolicy Bypass -File C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1 -Mode Capture
+# then run your existing Snapshot-VPSWork.ps1.

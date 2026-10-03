@@ -1,0 +1,14 @@
+{
+  "machine": { "os": "windows", "arch": "amd64" },
+  "tools": [
+    { "winget": "Git.Git", "minVersion": "2.40" },
+    { "winget": "7zip.7zip" },
+    { "winget": "OpenJS.NodeJS.LTS", "minVersion": "20" },
+    { "winget": "Python.Python.3.12", "minVersion": "3.12" }
+  ],
+  "runtimes": {
+    "node": "20",
+    "python": "3.12"
+  },
+  "note": "JSON (not YAML): stock Windows PowerShell 5.1 has no YAML parser. Same declarative idea, native parsing."
+}

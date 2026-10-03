@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "persistentRoot": "C:\\Work\\PersistentEnvironment",
+  "restoreMode": "copy-merge",
+  "paths": [
+    {"name":"OpenCodeConfig","source":"%USERPROFILE%\\.config\\opencode","target":"profile\\.config\\opencode","enabled":true},
+    {"name":"OpenCodeData","source":"%USERPROFILE%\\.local\\share\\opencode","target":"profile\\.local\\share\\opencode","enabled":true},
+    {"name":"ClaudeCode","source":"%USERPROFILE%\\.claude","target":"profile\\.claude","enabled":true},
+    {"name":"GitConfig","source":"%USERPROFILE%\\.gitconfig","target":"profile\\.gitconfig","enabled":true},
+    {"name":"PowerShellProfile","source":"%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1","target":"profile\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1","enabled":true},
+    {"name":"PS7Profile","source":"%USERPROFILE%\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1","target":"profile\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1","enabled":true}
+  ],
+  "excludedNames": [
+    "*.log",
+    "*.tmp",
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "Crashpad"
+  ],
+  "credentials": {
+    "enabled": false,
+    "warning": "Do not copy OAuth/token stores into normal snapshots. Prefer GitHub Actions secrets or another dedicated secret store.",
+    "files": []
+  }
+}
