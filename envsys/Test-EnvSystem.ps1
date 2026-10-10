@@ -250,18 +250,24 @@ public static class HarnessLongPath {
       [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $pr 'snap.reg'), $true)
     } finally { $z.Dispose() }
     $sx = Join-Path $pr 'direct.reg'
-    & reg export 'HKCU\Console' $sx /y 2>&1 | Out-Null
-    $expOk = Test-Path -LiteralPath $sx
+    $oldPref = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+      & reg export 'HKCU\Console' $sx /y 2>&1 | Out-Null
+      $expCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $oldPref }
+    $expOk = ($expCode -eq 0) -and (Test-Path -LiteralPath $sx)
     $long = $sx
     try {
       $sb = New-Object System.Text.StringBuilder 1024
       if ([HarnessLongPath]::GetLongPathName($sx, $sb, 1024) -gt 0) { $long = $sb.ToString() }
     } catch {}
     function Probe-Import([string]$p) {
-      $o = & reg import $p 2>&1 | Out-String
+      $oldP = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+      try { $o = & reg import $p 2>&1 | Out-String; $c = $LASTEXITCODE }
+      finally { $ErrorActionPreference = $oldP }
       $flat = ($o -replace '\s+', ' ').Trim()
       if ($flat.Length -gt 110) { $flat = $flat.Substring(0, 110) }
-      return "code=$LASTEXITCODE out=$flat"
+      return "code=$c out=$flat"
     }
     $r1 = Probe-Import $sx
     $r2 = Probe-Import $long
