@@ -28,6 +28,26 @@ function Invoke-Native {
   } finally { $ErrorActionPreference = $oldPref }
 }
 function MarkFail { param([string]$c, [string]$m) Status $c 'FAIL'; Write-Warning "${c}: ${m}"; $script:fail = $script:fail + 1 }
+function Get-LongPath([string]$p) {
+  # reg.exe rejects 8.3 short segments (e.g. C:\Users\RUNNER~1\...) with
+  # "Invalid syntax". Resolve to the long form once, best-effort.
+  try {
+    if (-not ([System.Management.Automation.PSTypeName]'EnvSysLongPath').Type) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class EnvSysLongPath {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern uint GetLongPathName(string lpszShortPath, StringBuilder lpszLongPath, uint cchBuffer);
+}
+'@ -ErrorAction Stop
+    }
+    $sb = New-Object System.Text.StringBuilder 1024
+    if ([EnvSysLongPath]::GetLongPathName($p, $sb, 1024) -gt 0) { return $sb.ToString() }
+  } catch {}
+  return $p
+}
 
 # 1. Workspace reconcile (add/modify/delete within WorkDir only)
 try {
@@ -104,7 +124,10 @@ try {
     if (-not $k.present) { continue }
     $f = Join-Path $SnapshotDir ('registry\' + ($k.key -replace '[\\ ]','_') + '.reg')
     if (Test-Path -LiteralPath $f) {
-      $r = Invoke-Native 'reg' @('import', $f)
+      $head = ''
+      try { $head = (Get-Content -LiteralPath $f -TotalCount 1 -ErrorAction Stop) } catch {}
+      if ($head -notmatch '^Windows Registry Editor Version') { throw "reg file for key $($k.key) has no registry header (export corrupt?)" }
+      $r = Invoke-Native 'reg' @('import', (Get-LongPath $f))
       if ($r.Code -ne 0) { throw "reg import failed for key $($k.key) file $f : $($r.Out)" }
     }
   }

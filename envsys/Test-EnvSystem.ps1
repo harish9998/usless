@@ -170,11 +170,15 @@ if (-not $WinChain) {
     $script:lastBootOut = $Out
     return $c
   }
-  function Boot-Detail([string]$Out, [int]$n = 12) {
+  function Boot-Detail([string]$Out) {
     if (Test-Path -LiteralPath $Out) {
-      $lines = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'FAIL|FAIL-|Error|error|mismatch|degraded|BAD|bad' } | Select-Object -First $n)
-      if ($lines.Count -eq 0) { $lines = @(Get-Content -LiteralPath $Out | Select-Object -Last $n) }
-      return ($lines -join ' / ').Substring(0, [Math]::Min(400, ($lines -join ' / ').Length))
+      # Component lines first (full phase picture), then failure evidence.
+      $comp = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'COMPONENT=' } | Select-Object -Last 14)
+      $errs = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'FAIL|Error|error|mismatch|degraded|header' } | Select-Object -First 6)
+      $lines = @($comp + $errs | Select-Object -First 16)
+      if ($lines.Count -eq 0) { $lines = @(Get-Content -LiteralPath $Out | Select-Object -Last 10) }
+      $t = ($lines -join ' / ')
+      return $t.Substring(0, [Math]::Min(600, $t.Length))
     }
     return 'no capture'
   }
