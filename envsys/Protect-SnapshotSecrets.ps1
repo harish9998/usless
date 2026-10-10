@@ -27,7 +27,7 @@ function Test-Excluded([string]$Full, [string]$Rel) {
   return $false
 }
 $hits = @()
-$files = Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue
+$files = Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue
 foreach ($f in $files) {
   $rel = $f.FullName.Substring($Path.Length)
   $leaf = $f.Name

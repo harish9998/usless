@@ -12,7 +12,9 @@ Environment variables whose names match `*TOKEN* *SECRET* *PASSWORD* *API_KEY*
 
 1. Capture excludes secret-named files from manifests (workspace + robocopy `/XF`).
 2. `Protect-SnapshotSecrets` scans the staged tree; exit 2 aborts publish.
-   Proven: caught a real `GITHUB_PERSONAL_ACCESS_TOKEN` on the dev box.
+   Proven on synthetic data by `Test-EnvSystem` (P02/P04 filename hits incl. dotfiles
+   via `-Force` enumeration, P03 clean pass, W14 content-hit abort with latest
+   untouched). No live-secret test has ever been performed, and none should be.
 3. Publish never advances `latest` until the new snapshot verifies.
 
 ## Channels
@@ -21,6 +23,12 @@ Environment variables whose names match `*TOKEN* *SECRET* *PASSWORD* *API_KEY*
   at restore time. Placeholders are never written back literally.
 - Telegram REST: API key via `$env:TG_API_KEY` (process env only); loopback HTTP
   (never leaves the box); app stores no plaintext tokens.
+- The Telegram SESSION bundle (`telegram.session*`, store `config.json`) is a
+  live account credential: dedicated backup-only account (never personal),
+  48 KB-per-secret size gate with base64 math, app-closed export for WAL/SHM
+  consistency, full procedure in `TELEGRAM-SESSION-SETUP.md`. This repository is
+  public: any merged workflow change could exfiltrate workflow-accessible
+  secrets, so keep the blast radius to one throwaway account and rotate on doubt.
 - No secrets in: logs (values masked as `***` by Actions), snapshots, reports,
   commits, archives.
 

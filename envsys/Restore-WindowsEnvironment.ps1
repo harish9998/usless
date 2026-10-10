@@ -20,14 +20,38 @@ $fail = 0
 # Native exes (reg/powercfg/...) report via exit codes and may write success to
 # stderr, which is TERMINATING under $ErrorActionPreference='Stop'. Always use this.
 function Invoke-Native {
-  param([string]$Exe, [string[]]$Args)
+  # NOTE: the argument parameter must NOT be named $Args. $Args is an automatic
+  # variable (unbound remaining args); a param named $Args silently receives
+  # nothing, so every call ran the BARE exe (reg/powercfg failed, bare netsh
+  # exited 0 producing a false-green Firewall). Verified 2026-10-10.
+  param([string]$Exe, [string[]]$Arguments)
   $oldPref = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   try {
-    $o = & $Exe @Args 2>&1 | Out-String
+    $o = & $Exe @Arguments 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Out = $o }
   } finally { $ErrorActionPreference = $oldPref }
 }
 function MarkFail { param([string]$c, [string]$m) Status $c 'FAIL'; Write-Warning "${c}: ${m}"; $script:fail = $script:fail + 1 }
+function Get-LongPath([string]$p) {
+  # reg.exe rejects 8.3 short segments (e.g. C:\Users\RUNNER~1\...) with
+  # "Invalid syntax". Resolve to the long form once, best-effort.
+  try {
+    if (-not ([System.Management.Automation.PSTypeName]'EnvSysLongPath').Type) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class EnvSysLongPath {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern uint GetLongPathName(string lpszShortPath, StringBuilder lpszLongPath, uint cchBuffer);
+}
+'@ -ErrorAction Stop
+    }
+    $sb = New-Object System.Text.StringBuilder 1024
+    if ([EnvSysLongPath]::GetLongPathName($p, $sb, 1024) -gt 0) { return $sb.ToString() }
+  } catch {}
+  return $p
+}
 
 # 1. Workspace reconcile (add/modify/delete within WorkDir only)
 try {
@@ -104,8 +128,11 @@ try {
     if (-not $k.present) { continue }
     $f = Join-Path $SnapshotDir ('registry\' + ($k.key -replace '[\\ ]','_') + '.reg')
     if (Test-Path -LiteralPath $f) {
-      $r = Invoke-Native 'reg' @('import', $f)
-      if ($r.Code -ne 0) { throw "reg import failed: $($r.Out)" }
+      $head = ''
+      try { $head = (Get-Content -LiteralPath $f -TotalCount 1 -ErrorAction Stop) } catch {}
+      if ($head -notmatch '^Windows Registry Editor Version') { throw "reg file for key $($k.key) has no registry header (export corrupt?)" }
+      $r = Invoke-Native 'reg' @('import', (Get-LongPath $f))
+      if ($r.Code -ne 0) { throw "reg import failed for key $($k.key) file $f : $($r.Out)" }
     }
   }
   Status 'Registry' 'RESTORED'
@@ -114,7 +141,8 @@ try {
 # 5. Power (timeouts + scheme; no hardware identity)
 try {
   $pw = Get-Content (Join-Path $SnapshotDir 'power.json') -Raw | ConvertFrom-Json
-  if ($pw.scheme -match '[0-9a-f-]{36}') {
+  # Full-match only: a partial/substring match would feed powercfg a broken scheme id.
+  if ([string]$pw.scheme -match '^[0-9a-f-]{36}$') {
     $r = Invoke-Native 'powercfg' @('/setactive', $pw.scheme)
     if ($r.Code -ne 0) { throw "powercfg setactive failed (admin required?): $($r.Out)" }
   }
