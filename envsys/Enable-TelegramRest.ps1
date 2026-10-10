@@ -32,11 +32,34 @@ $key = $env:TG_API_KEY
 if ([string]::IsNullOrWhiteSpace($key)) { Phase 'Config' 'FAIL' 'TG_API_KEY env empty'; exit 1 }
 if (-not $DataDir) { $DataDir = Join-Path $env:APPDATA 'com.cameronamer.telegramdrive' }
 if (-not $AppExe) {
-  foreach ($rt in @((Join-Path $env:LOCALAPPDATA 'Programs'), 'C:\Program Files')) {
-    if (-not (Test-Path -LiteralPath $rt)) { continue }
-    $hit = Get-ChildItem -LiteralPath $rt -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -like '*elegram*Drive*' } | Select-Object -First 1
-    if ($hit) { $AppExe = $hit.FullName; break }
+  # NSIS installs per-user here when not elevated; mirror the probe's resolution:
+  # exact spots, then per-machine/user trees, then the uninstall registry.
+  $exact = @((Join-Path $env:LOCALAPPDATA 'Telegram Drive\app.exe'))
+  foreach ($x in $exact) { if (Test-Path -LiteralPath $x) { $AppExe = $x; break } }
+  if (-not $AppExe) {
+    foreach ($rt in @((Join-Path $env:LOCALAPPDATA 'Programs'), 'C:\Program Files')) {
+      if (-not (Test-Path -LiteralPath $rt)) { continue }
+      $hit = Get-ChildItem -LiteralPath $rt -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like '*elegram*Drive*' } | Select-Object -First 1
+      if ($hit) { $AppExe = $hit.FullName; break }
+    }
+  }
+  if (-not $AppExe) {
+    foreach ($hive in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')) {
+      if (-not (Test-Path -LiteralPath $hive)) { continue }
+      foreach ($k in (Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue)) {
+        $dn = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).DisplayName
+        if ($dn -like '*elegram*Drive*') {
+          $loc = ([string](Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).InstallLocation).Trim().Trim('"')
+          if ($loc -and (Test-Path -LiteralPath $loc)) {
+            $hit = Get-ChildItem -LiteralPath $loc -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) { $AppExe = $hit.FullName; break }
+          }
+        }
+      }
+      if ($AppExe) { break }
+    }
   }
 }
 if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) {
