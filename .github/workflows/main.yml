@@ -8,7 +8,7 @@ on:
         required: false
         default: 'rdp'
         type: choice
-        options: [rdp, test]
+        options: [rdp, test, probe]
 
 jobs:
   secure-rdp:
@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Core RDP Settings
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -52,7 +52,7 @@ jobs:
           } else { Write-Host "C:\Work\envsys present (restored) - leaving untouched." }
 
       - name: Create RDP User with Fixed Password
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           $password = "${{ secrets.RDP_PASSWORD }}"
           if ([string]::IsNullOrWhiteSpace($password)) {
@@ -75,7 +75,7 @@ jobs:
           }
 
       - name: Install Tailscale
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
@@ -86,7 +86,7 @@ jobs:
           Start-Service Tailscale -ErrorAction SilentlyContinue
 
       - name: Establish Tailscale Connection
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           # Bring up Tailscale with the provided auth key and set a unique hostname
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID --accept-dns=false --accept-routes --unattended
@@ -128,8 +128,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "Harness reported FAIL - see TEST| lines above."; exit 1 }
           Write-Host "HARNESS|STATUS=READY"
 
+      - name: Telegram install/launch/health probe (zero secrets)
+        if: ${{ inputs.mode == 'probe' }}
+        run: |
+          # Bounded feasibility experiment for the storage-backend gate. Never signs
+          # in, never touches secrets. Verdict in PROBE|VERDICT. Exit 0 = verdict
+          # delivered (even if negative); exit 1 = probe infrastructure error.
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\Probe-TelegramInstall.ps1" -Destination "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Probe errored (no verdict) - see PROBE| lines."; exit 1 }
+          Write-Host "PROBE|STATUS=DELIVERED"
+
       - name: Setup personal stack (auto)
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           # Runs YOUR C:\Work\Install-MyStack.ps1 if you created it (edit once, applied every rebirth).
           if (Test-Path 'C:\Work\Install-MyStack.ps1') {
@@ -139,7 +150,7 @@ jobs:
           }
 
       - name: Environment bootstrap (Telegram snapshots)
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           # Full reconstruction from Telegram Drive. Best-effort: needs TG_API_KEY secret
           # AND the Telegram Drive app running signed-in on this runner; skips cleanly otherwise.
@@ -156,7 +167,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: environment bootstrap degraded - continuing with basic RDP." }
 
       - name: Verify RDP Accessibility
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
 
@@ -169,7 +180,7 @@ jobs:
           Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection (stay-alive watchdog)
-        if: ${{ inputs.mode != 'test' }}
+        if: ${{ inputs.mode == 'rdp' }}
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
