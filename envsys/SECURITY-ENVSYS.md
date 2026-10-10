@@ -12,7 +12,9 @@ Environment variables whose names match `*TOKEN* *SECRET* *PASSWORD* *API_KEY*
 
 1. Capture excludes secret-named files from manifests (workspace + robocopy `/XF`).
 2. `Protect-SnapshotSecrets` scans the staged tree; exit 2 aborts publish.
-   Proven: caught a real `GITHUB_PERSONAL_ACCESS_TOKEN` on the dev box.
+   Proven on synthetic data by `Test-EnvSystem` (P02/P04 filename hits incl. dotfiles
+   via `-Force` enumeration, P03 clean pass, W14 content-hit abort with latest
+   untouched). No live-secret test has ever been performed, and none should be.
 3. Publish never advances `latest` until the new snapshot verifies.
 
 ## Channels

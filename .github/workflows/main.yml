@@ -2,6 +2,13 @@ name: win 11 + tailscale + Download.bat script
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'rdp = persistent desktop; test = LocalDir regression harness only (no RDP, no Tailscale)'
+        required: false
+        default: 'rdp'
+        type: choice
+        options: [rdp, test]
 
 jobs:
   secure-rdp:
@@ -13,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Core RDP Settings
+        if: ${{ inputs.mode != 'test' }}
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -44,6 +52,7 @@ jobs:
           } else { Write-Host "C:\Work\envsys present (restored) - leaving untouched." }
 
       - name: Create RDP User with Fixed Password
+        if: ${{ inputs.mode != 'test' }}
         run: |
           $password = "${{ secrets.RDP_PASSWORD }}"
           if ([string]::IsNullOrWhiteSpace($password)) {
@@ -66,6 +75,7 @@ jobs:
           }
 
       - name: Install Tailscale
+        if: ${{ inputs.mode != 'test' }}
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
@@ -76,6 +86,7 @@ jobs:
           Start-Service Tailscale -ErrorAction SilentlyContinue
 
       - name: Establish Tailscale Connection
+        if: ${{ inputs.mode != 'test' }}
         run: |
           # Bring up Tailscale with the provided auth key and set a unique hostname
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID --accept-dns=false --accept-routes --unattended
@@ -95,39 +106,30 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Restore workspace from VPS (auto-memory)
+      - name: Persistence status (honest)
         run: |
-          # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
-          # Never fails the run: memory is best-effort until the VPS side is armed.
-          if ([string]::IsNullOrWhiteSpace("${{ secrets.VPS_SSH_KEY }}") -or [string]::IsNullOrWhiteSpace("${{ secrets.VPS_USER }}")) {
-              Write-Host "VPS sync secrets not set - skipping restore (one-time VPS setup pending)."
-              exit 0
+          # No permanent VPS exists, so the VPS sync path was removed. There is currently
+          # NO durable store configured: workspace changes live and die with this runner.
+          # This step stays red-free but never claims persistence it cannot prove.
+          Write-Host "PERSISTENCE|STORE=NONE-CONFIGURED|STATUS=NOT-READY"
+          Write-Host "VPS path removed (no permanent VPS exists)."
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.TG_API_KEY }}")) {
+              Write-Host "Telegram backend: SKIP (TG_API_KEY not set; provisional until a fresh-runner auth test passes)."
+          } else {
+              Write-Host "Telegram backend: PROVISIONAL (key present; fresh-runner sign-in proof still required)."
           }
-          # Pulls C:\Work back from the persistent VPS so a fresh runner feels like the last one.
-          $key = "$env:USERPROFILE\.ssh\vps_key"
-          New-Item -ItemType Directory -Path (Split-Path $key) -Force | Out-Null
-          "${{ secrets.VPS_SSH_KEY }}" | Out-File -LiteralPath $key -Encoding ascii -NoNewline
-          icacls $key /inheritance:r /grant:r "$env:USERNAME:F" | Out-Null
-          New-Item -ItemType Directory -Path 'C:\Work' -Force | Out-Null
-          $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
-          # Probe first: a half-configured VPS must degrade to skip, never to a red run.
-          & ssh @ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "echo ok" 2>$null
-          if ($LASTEXITCODE -ne 0) {
-              Write-Host "WARNING: VPS SSH unreachable - continuing without memory (run stays green)."
-              exit 0
-          }
-          Write-Host "Restoring C:\Work from VPS..."
-          & scp @ssh -r "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/*" 'C:\Work\' 2>$null
-          Write-Host "Restore done (empty on first run is normal)."
-          # Profile layer (opencode/claude/git/profiles): best-effort, never red.
-          $pet = 'C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1'
-          if (Test-Path $pet) {
-              powershell -NoProfile -ExecutionPolicy Bypass -File $pet -Mode Restore
-              if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: profile restore degraded - continuing.' }
-          } else { Write-Host 'No profile toolkit - skipping.' }
-          echo "VPS_SYNC=1" >> $env:GITHUB_ENV
+
+      - name: Run LocalDir regression harness (Test-EnvSystem)
+        if: ${{ inputs.mode == 'test' }}
+        run: |
+          # Zero secrets, no network. Fails the run on any FAIL; skips stay visible.
+          $store = Join-Path $env:RUNNER_TEMP 'envstore-test'
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-EnvSystem.ps1' -StoreRoot $store
+          if ($LASTEXITCODE -ne 0) { Write-Error "Harness reported FAIL - see TEST| lines above."; exit 1 }
+          Write-Host "HARNESS|STATUS=READY"
 
       - name: Setup personal stack (auto)
+        if: ${{ inputs.mode != 'test' }}
         run: |
           # Runs YOUR C:\Work\Install-MyStack.ps1 if you created it (edit once, applied every rebirth).
           if (Test-Path 'C:\Work\Install-MyStack.ps1') {
@@ -137,6 +139,7 @@ jobs:
           }
 
       - name: Environment bootstrap (Telegram snapshots)
+        if: ${{ inputs.mode != 'test' }}
         run: |
           # Full reconstruction from Telegram Drive. Best-effort: needs TG_API_KEY secret
           # AND the Telegram Drive app running signed-in on this runner; skips cleanly otherwise.
@@ -153,6 +156,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: environment bootstrap degraded - continuing with basic RDP." }
 
       - name: Verify RDP Accessibility
+        if: ${{ inputs.mode != 'test' }}
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
 
@@ -165,6 +169,7 @@ jobs:
           Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection (stay-alive watchdog)
+        if: ${{ inputs.mode != 'test' }}
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
@@ -186,35 +191,21 @@ jobs:
               }
               $ok = (Test-NetConnection -ComputerName '127.0.0.1' -Port 3389 -WarningAction SilentlyContinue).TcpTestSucceeded
               Write-Host "[$(Get-Date)] RDP Active (3389=$ok) - Use Cancel workflow to terminate"
-              # Auto-save workspace to VPS every ~15 min so nothing is lost at the 6h wipe
+              # No durable store is configured yet, so there is no auto-save target:
+              # workspace changes live and die with this runner (PERSISTENCE NOT READY).
+              # Local heartbeat only (~5 min cadence) as log evidence the loop is alive.
               $n++
-              if ($env:VPS_SYNC -eq '1' -and ($n % 3 -eq 0)) {
-                  $key = "$env:USERPROFILE\.ssh\vps_key"
-                  $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
-                  # Capture profile/app state into C:\Work first so the snapshot includes it.
-                  $pet = 'C:\Work\PersistentEnvironmentToolkit\Sync-PersistentEnvironment.ps1'
-                  if (Test-Path $pet) {
-                      powershell -NoProfile -ExecutionPolicy Bypass -File $pet -Mode Capture
-                      if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: profile capture degraded - snapshotting anyway.' }
-                  }
-                  & scp @ssh -r 'C:\Work\*' "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/" 2>$null
-                  if ($LASTEXITCODE -eq 0) { Write-Host "[$(Get-Date)] Workspace auto-saved to VPS" }
-                  else { Write-Host "[$(Get-Date)] WARNING: workspace auto-save FAILED - will retry next cycle" }
-              }
-              # Heartbeat (~5 min cadence; 60s would spam logs/minutes for zero gain here)
-              if ($env:VPS_SYNC -eq '1') {
-                  $hb = @{
-                      runner_id = "gh-runner-$env:GITHUB_RUN_ID"
-                      timestamp = (Get-Date).ToString('o')
-                      state = 'healthy'
-                      disk_free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
-                      memory_free_gb = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB / 1024, 1)
-                      work_revision = if (Test-Path 'C:\Work') { (Get-ChildItem 'C:\Work' -Recurse -File | Measure-Object).Count } else { 0 }
-                  } | ConvertTo-Json -Compress
-                  $hb | Out-File -LiteralPath "$env:TEMP\heartbeat.json" -Encoding ascii -NoNewline
-                  $key = "$env:USERPROFILE\.ssh\vps_key"
-                  & scp @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15') "$env:TEMP\heartbeat.json" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:C:/VPS-Work/heartbeats/gh-runner-$env:GITHUB_RUN_ID.json" 2>$null
-              }
+              $hb = @{
+                  runner_id = "gh-runner-$env:GITHUB_RUN_ID"
+                  timestamp = (Get-Date).ToString('o')
+                  state = 'healthy'
+                  persistence = 'NOT-READY-no-durable-store'
+                  disk_free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+                  memory_free_gb = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB / 1024, 1)
+                  work_revision = if (Test-Path 'C:\Work') { (Get-ChildItem 'C:\Work' -Recurse -File | Measure-Object).Count } else { 0 }
+              } | ConvertTo-Json -Compress
+              $hb | Out-File -LiteralPath "$env:TEMP\heartbeat-$n.json" -Encoding ascii -NoNewline
+              Write-Host "[$(Get-Date)] HEARTBEAT n=$n (local only; PERSISTENCE NOT READY)"
               # Full environment snapshot to Telegram (~15 min, only when TG key + envsys present)
               if (($n % 3 -eq 0) -and (-not [string]::IsNullOrWhiteSpace("${{ secrets.TG_API_KEY }}")) -and (Test-Path 'C:\Work\envsys\Publish-EnvSnapshot.ps1')) {
                   $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
