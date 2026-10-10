@@ -57,6 +57,7 @@ try {
         $dn = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).DisplayName
         if ($dn -like '*elegram*Drive*') {
           $loc = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).InstallLocation
+          if ($loc) { $loc = ([string]$loc).Trim().Trim('"') }
           Step 'Install' 'REGHIT' "$dn @ $loc"
           if ($loc -and (Test-Path -LiteralPath $loc)) {
             $exe = Get-ChildItem -LiteralPath $loc -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
