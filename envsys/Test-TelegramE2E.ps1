@@ -59,6 +59,15 @@ try {
     New-Item -ItemType Directory -Path $sdir -Force | Out-Null
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $sdir)
     Remove-Item -LiteralPath $zip -Force
+    # Required files may sit in a subfolder (zip structure varies); find them
+    # by name and stage ONLY allowlisted leaves at the session root.
+    $found = @{}
+    Get-ChildItem -LiteralPath $sdir -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+      if (($_.Name -in $allowed) -and (-not $found.ContainsKey($_.Name))) { $found[$_.Name] = $_.FullName }
+    }
+    foreach ($leaf in $allowed) {
+      if ($found.ContainsKey($leaf)) { Copy-Item -LiteralPath $found[$leaf] -Destination (Join-Path $sdir $leaf) -Force }
+    }
     $haveSession = Test-Path -LiteralPath (Join-Path $sdir 'telegram.session')
     $haveCfg = Test-Path -LiteralPath (Join-Path $sdir 'config.json')
     if (-not ($haveSession -and $haveCfg)) { Fail 'E01-bundle-decode' 'bundle lacks telegram.session and/or config.json' }
