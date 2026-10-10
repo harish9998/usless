@@ -20,10 +20,14 @@ $fail = 0
 # Native exes (reg/powercfg/...) report via exit codes and may write success to
 # stderr, which is TERMINATING under $ErrorActionPreference='Stop'. Always use this.
 function Invoke-Native {
-  param([string]$Exe, [string[]]$Args)
+  # NOTE: the argument parameter must NOT be named $Args. $Args is an automatic
+  # variable (unbound remaining args); a param named $Args silently receives
+  # nothing, so every call ran the BARE exe (reg/powercfg failed, bare netsh
+  # exited 0 producing a false-green Firewall). Verified 2026-10-10.
+  param([string]$Exe, [string[]]$Arguments)
   $oldPref = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   try {
-    $o = & $Exe @Args 2>&1 | Out-String
+    $o = & $Exe @Arguments 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Out = $o }
   } finally { $ErrorActionPreference = $oldPref }
 }

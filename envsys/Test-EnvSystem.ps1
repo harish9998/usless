@@ -149,6 +149,15 @@ try {
     Test-Result 'S04-bootstrap-verify-structure' 'PASS' 'STATIC: traversal + payload recompute present'
   } else { Test-Result 'S04-bootstrap-verify-structure' 'FAIL' 'STATIC: verify logic absent' }
 } catch { Test-Result 'S04-bootstrap-verify-structure' 'FAIL' $_.Exception.Message }
+try {
+  # S05: $Args is automatic (unbound args); a param named $Args silently gets
+  # nothing and every native call runs arg-less. Regression guard 2026-10-10.
+  $bad = @(Get-ChildItem -LiteralPath $Here -Filter '*.ps1' -Recurse | Where-Object {
+    (Get-Content -LiteralPath $_.FullName -Raw) -match 'param\([^)]*\$Args\b'
+  })
+  if ($bad.Count -eq 0) { Test-Result 'S05-no-args-param-collision' 'PASS' 'STATIC: no param named $Args' }
+  else { Test-Result 'S05-no-args-param-collision' 'FAIL' ('STATIC: ' + (($bad | ForEach-Object { $_.Name }) -join ',')) }
+} catch { Test-Result 'S05-no-args-param-collision' 'FAIL' $_.Exception.Message }
 
 # ---------- Windows-only chain (robocopy/registry/schtasks) ----------
 if (-not $WinChain) {
