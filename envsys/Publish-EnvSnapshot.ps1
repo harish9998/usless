@@ -116,13 +116,16 @@ try {
   $ptr = @{ snapshot_id = $sid; parts = $parts.Count; sha256 = $dig; published_utc = (Get-Date).ToUniversalTime().ToString('o') } |
     ConvertTo-Json -Compress
   $ptr | Out-File -LiteralPath "$stage\latest.json" -Encoding ascii -NoNewline
-  Storage-UploadFile $be "$stage\latest.json" 'envsnap/latest.json.new' | Out-Null
+  # Unique swap-temp per publisher: concurrent publishers must never share it
+  # (shared latest.json.new let one publisher move/delete another's pointer).
+  $newPtr = "envsnap/latest.json.new-$sid"
+  Storage-UploadFile $be "$stage\latest.json" $newPtr | Out-Null
   if ($BackendType -eq 'LocalDir') {
-    Move-Item -LiteralPath (Join-Path $Root 'envsnap\latest.json.new') -Destination (Join-Path $Root 'envsnap\latest.json') -Force
+    Move-Item -LiteralPath (Join-Path $Root ($newPtr -replace '/', '\')) -Destination (Join-Path $Root 'envsnap\latest.json') -Force
   } else {
     Storage-Delete $be 'envsnap/latest.json' | Out-Null
     Storage-UploadFile $be "$stage\latest.json" 'envsnap/latest.json' | Out-Null
-    Storage-Delete $be 'envsnap/latest.json.new' | Out-Null
+    Storage-Delete $be $newPtr | Out-Null
   }
   Status 'Upload' 'SUCCESS'
   Status 'Publish' 'SUCCESS'
@@ -155,7 +158,7 @@ try {
         Remove-Item $lt -Force -ErrorAction SilentlyContinue
       } catch {}
       if ($live -ne $sid) {
-        Storage-List $be2 $sid | ForEach-Object { Storage-Delete $be2 $_.name | Out-Null }
+        Storage-List $be2 "envsnap/$sid" | ForEach-Object { Storage-Delete $be2 $_.name | Out-Null }
       }
     }
   } catch {}

@@ -10,11 +10,12 @@
 # Machine-readable stdout: TEST|NAME=<id>|STATUS=PASS|FAIL|SKIP|DETAIL=<text>
 # Exit 0 = no FAIL (skips allowed unless -FailOnSkip). Exit 1 = any FAIL.
 # All secret-like values below are synthetic and clearly fake.
-param([string]$StoreRoot = '', [switch]$FailOnSkip)
+param([string]$StoreRoot = '', [string]$RepoRoot = '', [switch]$FailOnSkip)
 $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source this file: execute it.' }
 
 $Here = $PSScriptRoot
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $Here }
 $script:pass = 0; $script:fail = 0; $script:skip = 0
 function Test-Result {
   param([string]$Name, [string]$Status, [string]$Detail = '')
@@ -133,7 +134,7 @@ try {
   else { Test-Result 'P01-syntax-all' 'FAIL' ($errs -join ',') }
 } catch { Test-Result 'P01-syntax-all' 'FAIL' $_.Exception.Message }
 try {
-  $wf = Get-Content -LiteralPath (Join-Path (Split-Path -Parent $Here) '.github/workflows/main.yml') -Raw
+  $wf = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/main.yml') -Raw
   if ($wf -match '(?m)^\s*if:.*secrets\.') { Test-Result 'S02-no-secrets-in-workflow-if' 'FAIL' 'secret in if: expression' }
   else { Test-Result 'S02-no-secrets-in-workflow-if' 'PASS' 'STATIC: no secrets in if:' }
 } catch { Test-Result 'S02-no-secrets-in-workflow-if' 'FAIL' $_.Exception.Message }
@@ -164,7 +165,19 @@ if (-not $WinChain) {
   $Publish = Join-Path $Here 'Publish-EnvSnapshot.ps1'
   $Bootstrap = Join-Path $Here 'Invoke-EnvBootstrap.ps1'
   function Pub-Now { Invoke-Child $Publish @('-BackendType', 'LocalDir', '-Root', $StoreRoot, '-WorkDir', $Pub, '-HomeRoot', $FakeHome) }
-  function Boot-Now([string]$Out) { Invoke-Child $Bootstrap @('-BackendType', 'LocalDir', '-Root', $StoreRoot, '-WorkDir', $Rst, '-HomeRoot', $FakeHome) -CaptureOut $Out }
+  function Boot-Now([string]$Out) {
+    $c = Invoke-Child $Bootstrap @('-BackendType', 'LocalDir', '-Root', $StoreRoot, '-WorkDir', $Rst, '-HomeRoot', $FakeHome) -CaptureOut $Out
+    $script:lastBootOut = $Out
+    return $c
+  }
+  function Boot-Detail([string]$Out, [int]$n = 12) {
+    if (Test-Path -LiteralPath $Out) {
+      $lines = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'FAIL|FAIL-|Error|error|mismatch|degraded|BAD|bad' } | Select-Object -First $n)
+      if ($lines.Count -eq 0) { $lines = @(Get-Content -LiteralPath $Out | Select-Object -Last $n) }
+      return ($lines -join ' / ').Substring(0, [Math]::Min(400, ($lines -join ' / ').Length))
+    }
+    return 'no capture'
+  }
   function Store-LatestId {
     $t = Join-Path (Temp-Base) ("envtest-$PID-latest.json")
     . (Join-Path $Here 'Storage-Backend.ps1')
@@ -190,7 +203,7 @@ if (-not $WinChain) {
     $snap2 = Store-LatestId
     if (($snap1 -eq $snap2) -or (-not $snap1) -or (-not $snap2)) { throw 'snapshot ids not unique' }
     $o = Join-Path (Temp-Base) ("envtest-$PID-boot1.txt")
-    if ((Boot-Now $o) -ne 0) { throw 'bootstrap gen2 failed' }
+    if ((Boot-Now $o) -ne 0) { throw ('bootstrap gen2 failed: ' + (Boot-Detail $o)) }
     $a = Get-Content -LiteralPath (Join-Path $Rst 'A.txt') -Raw
     $bGone = -not (Test-Path -LiteralPath (Join-Path $Rst 'sub\B.txt'))
     $dOk = ((Get-Content -LiteralPath (Join-Path $Rst 'D.txt') -Raw) -eq 'D-v2')
@@ -209,7 +222,7 @@ if (-not $WinChain) {
     # Orphan/unreferenced objects must not disturb the live chain.
     Set-Content -LiteralPath (Join-Path $StoreRoot 'envsnap\envsnap-ORPHAN.zip') -Value 'garbage-not-a-snapshot' -NoNewline
     $o = Join-Path (Temp-Base) ("envtest-$PID-boot2.txt")
-    if ((Boot-Now $o) -ne 0) { throw 'bootstrap with orphan present failed' }
+    if ((Boot-Now $o) -ne 0) { throw ('bootstrap with orphan present failed: ' + (Boot-Detail $o)) }
     Test-Result 'W12-orphan-ignored' 'PASS' 'unreferenced object ignored, latest restores'
   } catch { Test-Result 'W12-orphan-ignored' 'FAIL' $_.Exception.Message }
 
@@ -280,7 +293,7 @@ if (-not $WinChain) {
     $code = Boot-Now $o
     if (($mans.Count -le 3) -and ($code -eq 0)) {
       Test-Result 'W15-prune-keeps-good' 'PASS' "$($mans.Count) manifests retained, latest restores"
-    } else { Test-Result 'W15-prune-keeps-good' 'FAIL' "manifests=$($mans.Count) boot=$code" }
+    } else { Test-Result 'W15-prune-keeps-good' 'FAIL' "manifests=$($mans.Count) boot=$code detail=$(Boot-Detail $o)" }
   } catch { Test-Result 'W15-prune-keeps-good' 'FAIL' $_.Exception.Message }
 
   Remove-Item -LiteralPath $Pub -Recurse -Force -ErrorAction SilentlyContinue

@@ -124,7 +124,7 @@ jobs:
         run: |
           # Zero secrets, no network. Fails the run on any FAIL; skips stay visible.
           $store = Join-Path $env:RUNNER_TEMP 'envstore-test'
-          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-EnvSystem.ps1' -StoreRoot $store
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-EnvSystem.ps1' -StoreRoot $store -RepoRoot '${{ github.workspace }}'
           if ($LASTEXITCODE -ne 0) { Write-Error "Harness reported FAIL - see TEST| lines above."; exit 1 }
           Write-Host "HARNESS|STATUS=READY"
 
