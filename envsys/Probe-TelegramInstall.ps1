@@ -101,7 +101,44 @@ try {
   Step 'Health' 'TIMEOUT' $lastErr
   $dataDir = Join-Path $env:APPDATA 'com.cameronamer.telegramdrive'
   $dirState = if (Test-Path -LiteralPath $dataDir) { 'app-data dir created' } else { 'no app-data dir' }
-  Verdict 'PORT-CLOSED' "no listener in ${PollSeconds}s; $dirState; last=$lastErr"
+
+  # Phase 2 (still zero secrets): prove config-seeded REST autostart. Write
+  # api_settings.json with enabled:true + hash of a DUMMY key, relaunch, poll.
+  # A 200 (or any HTTP answer) proves the file-seeded autostart path headless;
+  # only the Telegram sign-in half would remain for a seeded session.
+  Step 'Seed' 'START' 'api_settings.json enabled:true + dummy key hash'
+  if (-not (Test-Path -LiteralPath $dataDir)) {
+    Verdict 'PORT-CLOSED' "no listener in ${PollSeconds}s; $dirState"
+  }
+  $names = @(Get-ChildItem -LiteralPath $dataDir -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+  Step 'Seed' 'APPDATA' ($names -join ',')
+  $dummyHash = (([System.Security.Cryptography.SHA256]::Create().ComputeHash(
+    [System.Text.Encoding]::UTF8.GetBytes('probe-dummy-key'))) | ForEach-Object { $_.ToString('x2') }) -join ''
+  @{ enabled = $true; port = 8550; key_hash = $dummyHash } | ConvertTo-Json -Compress |
+    Out-File -LiteralPath (Join-Path $dataDir 'api_settings.json') -Encoding ascii -NoNewline
+  Step 'Seed' 'WRITTEN' 'enabled:true port:8550 key_hash:sha256(probe-dummy-key)'
+  $app2 = Start-Process -FilePath $exe.FullName -PassThru
+  Start-Sleep -Seconds 25
+  if ($app2.HasExited) { Verdict 'LAUNCH-BLOCKED' 'process died after seeding (exit on relaunch)' }
+  $deadline2 = (Get-Date).AddSeconds(180)
+  while ((Get-Date) -lt $deadline2) {
+    if ($app2.HasExited) { Verdict 'LAUNCH-BLOCKED' 'process died during seeded poll' }
+    try {
+      $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8550/api/v1/health' -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+      Step 'Seed' 'HEALTH' "http=$($r.StatusCode) body=$($r.Content)"
+      try { Stop-Process -Id $app2.Id -Force -ErrorAction SilentlyContinue } catch {}
+      Verdict 'HEALTH-200-SEEDED' 'seeded api_settings.json autostarts REST headless; only Telegram sign-in remains'
+    } catch {
+      $lastErr = $_.Exception.Message
+      if ($_.Exception.Message -match '401|403') {
+        try { Stop-Process -Id $app2.Id -Force -ErrorAction SilentlyContinue } catch {}
+        Verdict 'HEALTH-OTHER' 'seeded REST answers with auth gate'
+      }
+    }
+    Start-Sleep -Seconds 15
+  }
+  try { Stop-Process -Id $app2.Id -Force -ErrorAction SilentlyContinue } catch {}
+  Verdict 'PORT-CLOSED-SEEDED' "seeded config did not open REST; last=$lastErr"
 } catch {
   Write-Output "PROBE|STEP=Probe|STATUS=ERROR|DETAIL=$($_.Exception.Message)"
   exit 1
