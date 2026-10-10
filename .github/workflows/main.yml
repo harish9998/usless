@@ -138,6 +138,13 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1"
           if ($LASTEXITCODE -ne 0) { Write-Error "Probe errored (no verdict) - see PROBE| lines."; exit 1 }
           Write-Host "PROBE|STATUS=DELIVERED"
+          # Production seeding script against the just-probed app, with a DUMMY
+          # key (not a secret) and no session dir: expect REST=UP + SIGNED-OUT.
+          $env:TG_API_KEY = 'probe-dummy-key-not-a-secret'
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Enable-TelegramRest.ps1'
+          if ($LASTEXITCODE -ne 0) { Write-Error "Enable-TelegramRest failed with dummy key."; exit 1 }
+          Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
+          Write-Host "ENABLE-SCRIPT|STATUS=READY-WITH-DUMMY-KEY"
 
       - name: Setup personal stack (auto)
         if: ${{ inputs.mode == 'rdp' }}
