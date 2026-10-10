@@ -37,11 +37,35 @@ try {
 
   Step 'Install' 'START' 'nsis /S'
   $p = Start-Process -FilePath $inst -ArgumentList '/S' -Wait -PassThru -NoNewWindow
+  Step 'Install' 'EXIT' "code=$($p.ExitCode)"
   if ($p.ExitCode -ne 0) { Step 'Install' 'FAIL' "exit=$($p.ExitCode)"; Verdict 'INSTALL-BLOCKED' "silent install exit $($p.ExitCode)" }
-  $exe = Get-ChildItem -LiteralPath 'C:\Program Files' -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.Directory.Name -like "*$ExpectProduct*" } | Select-Object -First 1
+  # NSIS may install per-user (LOCALAPPDATA\Programs) when not elevated; search
+  # machine + user locations plus the uninstall registry before concluding.
+  $roots = @('C:\Program Files', (Join-Path $env:LOCALAPPDATA 'Programs'))
+  $exe = $null
+  foreach ($rt in $roots) {
+    if (-not (Test-Path -LiteralPath $rt)) { continue }
+    $exe = Get-ChildItem -LiteralPath $rt -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -like '*elegram*Drive*' } | Select-Object -First 1
+    if ($exe) { break }
+  }
   if (-not $exe) {
-    $exe = Get-ChildItem -LiteralPath 'C:\Program Files\Telegram Drive' -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    foreach ($hive in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')) {
+      if (-not (Test-Path -LiteralPath $hive)) { continue }
+      foreach ($k in (Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue)) {
+        $dn = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).DisplayName
+        if ($dn -like '*elegram*Drive*') {
+          $loc = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue).InstallLocation
+          Step 'Install' 'REGHIT' "$dn @ $loc"
+          if ($loc -and (Test-Path -LiteralPath $loc)) {
+            $exe = Get-ChildItem -LiteralPath $loc -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($exe) { break }
+          }
+        }
+      }
+      if ($exe) { break }
+    }
   }
   if (-not $exe) { Step 'Install' 'FAIL' 'no installed exe found'; Verdict 'INSTALL-BLOCKED' 'installed exe not found' }
   Step 'Install' 'SUCCESS' $exe.FullName
