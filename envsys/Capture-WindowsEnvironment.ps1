@@ -112,7 +112,11 @@ $regState | ConvertTo-Json | Out-File -LiteralPath (Join-Path $OutDir 'registry\
 # --- 5. Power settings (scheme + timeouts; reapplied, never hardware identity) ---
 Invoke-CapSection 'power' {
 Log 'power'
-$guid = ((powercfg /getactivescheme 2>$null) | Select-String -Pattern '[0-9a-f-]{36}') -replace '.*([0-9a-f-]{36}).*','$1'
+# Extract exactly one GUID: -replace on multiline output keeps the other lines,
+# which later breaks powercfg /setactive with "Invalid Parameters".
+$rawScheme = ((powercfg /getactivescheme 2>$null) | Out-String)
+$mm = [regex]::Match($rawScheme, '[0-9a-f-]{36}', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+$guid = if ($mm.Success) { $mm.Groups[0].Value } else { '' }
 @{ scheme = $guid;
    standby_ac = ((powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null) | Out-String);
    hibernate_ac = ((powercfg /query SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE 2>$null) | Out-String) } |

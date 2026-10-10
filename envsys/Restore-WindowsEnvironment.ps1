@@ -105,7 +105,7 @@ try {
     $f = Join-Path $SnapshotDir ('registry\' + ($k.key -replace '[\\ ]','_') + '.reg')
     if (Test-Path -LiteralPath $f) {
       $r = Invoke-Native 'reg' @('import', $f)
-      if ($r.Code -ne 0) { throw "reg import failed: $($r.Out)" }
+      if ($r.Code -ne 0) { throw "reg import failed for key $($k.key) file $f : $($r.Out)" }
     }
   }
   Status 'Registry' 'RESTORED'
@@ -114,7 +114,8 @@ try {
 # 5. Power (timeouts + scheme; no hardware identity)
 try {
   $pw = Get-Content (Join-Path $SnapshotDir 'power.json') -Raw | ConvertFrom-Json
-  if ($pw.scheme -match '[0-9a-f-]{36}') {
+  # Full-match only: a partial/substring match would feed powercfg a broken scheme id.
+  if ([string]$pw.scheme -match '^[0-9a-f-]{36}$') {
     $r = Invoke-Native 'powercfg' @('/setactive', $pw.scheme)
     if ($r.Code -ne 0) { throw "powercfg setactive failed (admin required?): $($r.Out)" }
   }
