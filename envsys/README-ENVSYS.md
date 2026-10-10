@@ -42,7 +42,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Relaunch-RDP.ps1
 ## Recovery after runner death
 
 Replacement runners are launched explicitly (manual `workflow_dispatch` via
-`scripts\Relaunch-RDP.ps1` or the Actions tab; `test` mode runs only the harness).
+`scripts\Relaunch-RDP.ps1` or the Actions tab; `test` mode runs only the harness,
+`probe` mode only the Telegram experiments). No perpetual scheduled relaunches:
+hosted runners are for producing/testing/publishing this repo's software, not for
+keeping a general-purpose desktop alive, and no scheduler can promise a
+continuously available personal RDP service.
 Bootstrap fetches `latest.json`, verifies digest, restores, provisions missing tools,
 starts automation, health-gates, prints RDP READY. A corrupt `latest` is rejected
 automatically and the newest previous-good snapshot is tried (up to 4 candidates,
