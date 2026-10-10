@@ -116,7 +116,8 @@ try {
 } catch {
   $msg = $_.Exception.Message
   if ($msg -match '401|403') { $session = 'KEY-REJECTED' }
-  elseif ($msg -match '500') { $session = 'SIGNED-OUT' }
+  elseif ($msg -match '503') { $session = 'SIGNED-OUT' }  # NOT_CONNECTED: REST up, no Telegram client
+  elseif ($msg -match '500') { $session = 'SERVER-ERROR' }
   else { $session = 'PROBE-ERROR' }
 }
 Write-Output "TELEGRAM|REST=UP|SESSION=$session"
