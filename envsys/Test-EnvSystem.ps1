@@ -152,7 +152,7 @@ try {
 
 # ---------- Windows-only chain (robocopy/registry/schtasks) ----------
 if (-not $WinChain) {
-  foreach ($n in @('W10-publish-restore-reconcile', 'W11-corrupt-fallback', 'W12-orphan-ignored',
+  foreach ($n in @('W10-publish-restore-reconcile', 'W09-reg-probe', 'W11-corrupt-fallback', 'W12-orphan-ignored',
       'W13-concurrent-publishers', 'W14-secret-publish-rejected', 'W15-prune-keeps-good')) {
     Test-Result $n 'SKIP' 'needs Windows + robocopy'
   }
@@ -172,13 +172,13 @@ if (-not $WinChain) {
   }
   function Boot-Detail([string]$Out) {
     if (Test-Path -LiteralPath $Out) {
-      # Component lines first (full phase picture), then failure evidence.
+      # Failure evidence first (short), then the full component picture.
+      $errs = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'FAIL|Error|error|mismatch|degraded|header' } | Select-Object -First 8)
       $comp = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'COMPONENT=' } | Select-Object -Last 14)
-      $errs = @(Get-Content -LiteralPath $Out | Where-Object { $_ -match 'FAIL|Error|error|mismatch|degraded|header' } | Select-Object -First 6)
-      $lines = @($comp + $errs | Select-Object -First 16)
+      $lines = @($errs + $comp | Select-Object -First 18)
       if ($lines.Count -eq 0) { $lines = @(Get-Content -LiteralPath $Out | Select-Object -Last 10) }
       $t = ($lines -join ' / ')
-      return $t.Substring(0, [Math]::Min(600, $t.Length))
+      return $t.Substring(0, [Math]::Min(1200, $t.Length))
     }
     return 'no capture'
   }
@@ -221,6 +221,54 @@ if (-not $WinChain) {
       Test-Result 'W10-publish-restore-reconcile' 'PASS' 'modify+delete+add reconciled, secrets absent in restore and archive'
     } else { Test-Result 'W10-publish-restore-reconcile' 'FAIL' "a=$a bGone=$bGone dOk=$dOk envGone=$envGone authGone=$authGone zipClean=$zipClean" }
   } catch { Test-Result 'W10-publish-restore-reconcile' 'FAIL' $_.Exception.Message }
+
+  try {
+    # W09: isolate reg.exe behavior from snapshot logic. Direct export->import on
+    # short path, long path, and the SNAPSHOT's own .reg file. Diagnostic: PASS
+    # means the probe executed; the three outcomes ride in DETAIL.
+    if (-not $snap2) { throw 'no snapshot published, nothing to probe' }
+    $pr = New-TestDir 'regprobe'
+    try {
+      if (-not ([System.Management.Automation.PSTypeName]'HarnessLongPath').Type) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class HarnessLongPath {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern uint GetLongPathName(string lpszShortPath, StringBuilder lpszLongPath, uint cchBuffer);
+}
+'@ -ErrorAction Stop
+      }
+    } catch {}
+    $zp = Join-Path $StoreRoot ("envsnap\" + $snap2 + '.zip')
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $z = [System.IO.Compression.ZipFile]::OpenRead($zp)
+    try {
+      $e = @($z.Entries | Where-Object { $_.FullName -like '*HKCU_Console.reg' })[0]
+      if (-not $e) { throw 'console reg not in snapshot' }
+      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $pr 'snap.reg'), $true)
+    } finally { $z.Dispose() }
+    $sx = Join-Path $pr 'direct.reg'
+    & reg export 'HKCU\Console' $sx /y 2>&1 | Out-Null
+    $expOk = Test-Path -LiteralPath $sx
+    $long = $sx
+    try {
+      $sb = New-Object System.Text.StringBuilder 1024
+      if ([HarnessLongPath]::GetLongPathName($sx, $sb, 1024) -gt 0) { $long = $sb.ToString() }
+    } catch {}
+    function Probe-Import([string]$p) {
+      $o = & reg import $p 2>&1 | Out-String
+      $flat = ($o -replace '\s+', ' ').Trim()
+      if ($flat.Length -gt 110) { $flat = $flat.Substring(0, 110) }
+      return "code=$LASTEXITCODE out=$flat"
+    }
+    $r1 = Probe-Import $sx
+    $r2 = Probe-Import $long
+    $r3 = Probe-Import (Join-Path $pr 'snap.reg')
+    Test-Result 'W09-reg-probe' 'PASS' "export=$expOk short=[$r1] long=[$long :: $r2] snap=[$r3]"
+    Remove-Item -LiteralPath $pr -Recurse -Force -ErrorAction SilentlyContinue
+  } catch { Test-Result 'W09-reg-probe' 'FAIL' $_.Exception.Message }
 
   try {
     # Orphan/unreferenced objects must not disturb the live chain.
