@@ -295,15 +295,33 @@ public static class HarnessLongPath {
 
   try {
     # Corrupt ONLY the latest payload; bootstrap must reject it and fall back to previous-good.
+    # Flip bytes at spread offsets (never a single offset: one flip could land inside
+    # the embedded manifest.json, which is excluded from the payload digest, or hit a
+    # 0xFF byte and change nothing). Effectiveness is verified by hash comparison.
     $zp = Join-Path $StoreRoot ("envsnap\" + $snap2 + '.zip')
+    function Zip-Hash([string]$p) {
+      $s = [System.IO.File]::OpenRead($p)
+      try { return (([System.Security.Cryptography.SHA256]::Create().ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) -join '') }
+      finally { $s.Close() }
+    }
+    $hBefore = Zip-Hash $zp
+    $len = (Get-Item -LiteralPath $zp).Length
     $fs = [System.IO.File]::Open($zp, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite)
-    try { $fs.Seek(100, [System.IO.SeekOrigin]::Begin) | Out-Null; $fs.WriteByte(0xFF) } finally { $fs.Close() }
+    try {
+      foreach ($k in 1..7) {
+        $off = [long]($len * $k / 8)
+        $fs.Seek($off, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $fs.WriteByte(0xA5)
+      }
+    } finally { $fs.Close() }
+    if ((Zip-Hash $zp) -eq $hBefore) { throw 'corruption ineffective (hash unchanged)' }
     $o = Join-Path (Temp-Base) ("envtest-$PID-boot3.txt")
     $code = Boot-Now $o
     $txt = Get-Content -LiteralPath $o -Raw
     $fb = ($txt -match 'SUCCESS-FALLBACK')
     $a = Get-Content -LiteralPath (Join-Path $Rst 'A.txt') -Raw
-    $bBack = ((Get-Content -LiteralPath (Join-Path $Rst 'sub\B.txt') -Raw) -eq 'B-v1')
+    $bP = Join-Path $Rst 'sub\B.txt'
+    $bBack = ((Test-Path -LiteralPath $bP) -and ((Get-Content -LiteralPath $bP -Raw) -eq 'B-v1'))
     $dGone = -not (Test-Path -LiteralPath (Join-Path $Rst 'D.txt'))
     if (($code -eq 0) -and $fb -and ($a -eq 'A-v1') -and $bBack -and $dGone) {
       Test-Result 'W11-corrupt-fallback' 'PASS' 'corrupt latest rejected, previous-good restored'
