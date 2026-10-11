@@ -155,6 +155,7 @@ jobs:
           # after configuration it means a REAL failure. Synthetic 1 KB object
           # under envsys-e2e/<run-id>/, removed afterwards; your files untouched.
           $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+          if ([string]::IsNullOrWhiteSpace($env:TG_API_KEY)) { $env:TG_API_KEY = "${{ secrets.TG_API }}" }
           $env:TG_SESSION_B64 = "${{ secrets.TG_SESSION_B64 }}"
           # Chunked bundle support (missing secrets evaluate to empty, safely ignored).
           $env:TG_SESSION_B64_1 = "${{ secrets.TG_SESSION_B64_1 }}"
