@@ -117,11 +117,21 @@ try {
     if (-not ($mkOk -and $dtOk)) { Fail 'R04-restore' 'Runner A files missing after bootstrap' }
     Test-Result 'R04-restore' 'PASS' 'Runner A state restored on Runner B'
 
-    foreach ($obj in @("envsnap/$sid.zip", "envsnap/$sid.manifest.json", 'envsnap/latest.json')) {
+    $delNames = @("envsnap/$sid.zip", "envsnap/$sid.manifest.json", 'envsnap/latest.json')
+    foreach ($obj in $delNames) {
       try { Storage-Delete $be $obj | Out-Null } catch {}
     }
-    $left = @(Storage-List $be 'envsnap/' | Where-Object { $_.name -like '*envsnap-*.zip' -or $_.name -like '*.manifest.json' -or $_.name -eq 'envsnap/latest.json' })
-    if ($left.Count -gt 0) { Fail 'R05-cleanup' "store not clean: $($left.Count) objects remain" }
+    # Deletes can be eventually consistent: poll before declaring failure.
+    $left = @()
+    for ($k = 1; $k -le 6; $k++) {
+      Start-Sleep -Seconds 20
+      $left = @(Storage-List $be 'envsnap/' | Where-Object {
+        $_.name -like '*envsnap-*.zip' -or $_.name -like '*.manifest.json' -or $_.name -like '*latest.json' })
+      if ($left.Count -eq 0) { break }
+    }
+    if ($left.Count -gt 0) {
+      Fail 'R05-cleanup' ("store not clean: " + (($left | ForEach-Object { $_.name }) -join ','))
+    }
     Test-Result 'R05-cleanup' 'PASS' 'test snapshot removed from store'
   } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
