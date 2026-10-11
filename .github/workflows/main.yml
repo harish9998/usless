@@ -167,6 +167,11 @@ jobs:
           $env:TG_SESSION_B64_7 = "${{ secrets.TG_SESSION_B64_7 }}"
           $env:TG_SESSION_B64_8 = "${{ secrets.TG_SESSION_B64_8 }}"
           $env:TG_SESSION_B64_9 = "${{ secrets.TG_SESSION_B64_9 }}"
+          # Fresh runners have no app: install it first via the proven probe
+          # (short poll; the e2e below does the real verification).
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\Probe-TelegramInstall.ps1" -Destination "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -PollSeconds 60
+          if ($LASTEXITCODE -ne 0) { Write-Error "Telegram app install failed - see PROBE| lines."; exit 1 }
           powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-TelegramE2E.ps1'
           $code = $LASTEXITCODE
           Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
