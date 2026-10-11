@@ -90,7 +90,17 @@ try {
     $be = New-StorageBackend -Type TelegramRest -ApiKey $env:TG_API_KEY
     $lj = Join-Path $root 'latest.json'
     try { Storage-DownloadFile $be 'envsnap/latest.json' $lj | Out-Null }
-    catch { Fail 'R03-fetch' 'no latest snapshot (Runner A never published?)' }
+    catch {
+      # Names only, test prefixes only: never print the user's own file names.
+      $names = ''
+      try {
+        $a = @(Storage-List $be 'envsnap/' | ForEach-Object { $_.name })
+        $b = @(Storage-List $be 'envsys-e2e/' | ForEach-Object { $_.name })
+        $names = ((@($a + $b) | Select-Object -First 20) -join ',')
+      } catch {}
+      if ($names.Length -gt 300) { $names = $names.Substring(0, 300) }
+      Fail 'R03-fetch' "no latest snapshot (Runner A never published?) store:[$names]"
+    }
     $sid = (Get-Content $lj -Raw | ConvertFrom-Json).snapshot_id
     if (-not $sid) { Fail 'R03-fetch' 'empty snapshot id' }
     Write-Output "RESTORE-SOURCE|$sid"
