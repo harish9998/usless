@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'rdp = persistent desktop; test = LocalDir regression harness only (no RDP, no Tailscale)'
+        description: 'rdp = desktop; test = LocalDir harness; probe = Telegram install probe; telegram-e2e = real backend transaction (needs secrets)'
         required: false
         default: 'rdp'
         type: choice
-        options: [rdp, test, probe]
+        options: [rdp, test, probe, telegram-e2e]
 
 jobs:
   secure-rdp:
@@ -145,6 +145,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "Enable-TelegramRest failed with dummy key."; exit 1 }
           Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
           Write-Host "ENABLE-SCRIPT|STATUS=READY-WITH-DUMMY-KEY"
+
+      - name: Telegram end-to-end persistence transaction (synthetic, needs secrets)
+        if: ${{ inputs.mode == 'telegram-e2e' }}
+        run: |
+          # Decisive backend test. Requires TG_API_KEY + TG_SESSION_B64[_N] secrets
+          # (set by YOU in repo Settings; never pasted anywhere). Without them the
+          # script fails E00 honestly - a red run here means "not configured", and
+          # after configuration it means a REAL failure. Synthetic 1 KB object
+          # under envsys-e2e/<run-id>/, removed afterwards; your files untouched.
+          $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+          $env:TG_SESSION_B64 = "${{ secrets.TG_SESSION_B64 }}"
+          # Chunked bundle support (missing secrets evaluate to empty, safely ignored).
+          $env:TG_SESSION_B64_1 = "${{ secrets.TG_SESSION_B64_1 }}"
+          $env:TG_SESSION_B64_2 = "${{ secrets.TG_SESSION_B64_2 }}"
+          $env:TG_SESSION_B64_3 = "${{ secrets.TG_SESSION_B64_3 }}"
+          $env:TG_SESSION_B64_4 = "${{ secrets.TG_SESSION_B64_4 }}"
+          $env:TG_SESSION_B64_5 = "${{ secrets.TG_SESSION_B64_5 }}"
+          $env:TG_SESSION_B64_6 = "${{ secrets.TG_SESSION_B64_6 }}"
+          $env:TG_SESSION_B64_7 = "${{ secrets.TG_SESSION_B64_7 }}"
+          $env:TG_SESSION_B64_8 = "${{ secrets.TG_SESSION_B64_8 }}"
+          $env:TG_SESSION_B64_9 = "${{ secrets.TG_SESSION_B64_9 }}"
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-TelegramE2E.ps1'
+          $code = $LASTEXITCODE
+          Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TG_SESSION_B64 -ErrorAction SilentlyContinue
+          for ($k = 1; $k -le 9; $k++) { Remove-Item "Env:\TG_SESSION_B64_$k" -ErrorAction SilentlyContinue }
+          if ($code -ne 0) { Write-Error "Telegram E2E FAILED - see TEST| lines above."; exit 1 }
+          Write-Host "TELEGRAM-E2E|STATUS=READY"
 
       - name: Setup personal stack (auto)
         if: ${{ inputs.mode == 'rdp' }}
