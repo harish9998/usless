@@ -80,9 +80,12 @@ try {
     if (-not $exe) { $exe = (Get-Command pwsh -ErrorAction SilentlyContinue) }
     $p = Start-Process -FilePath $exe.Source -ArgumentList $flat -NoNewWindow -Wait -PassThru -RedirectStandardOutput $cap
     $txt = Get-Content -LiteralPath $cap -Raw
+    $tglines = @(Get-Content -LiteralPath $cap | Where-Object { $_ -match 'TELEGRAM\|' } | Select-Object -Last 6)
+    $tgdetail = ($tglines -join ' / ')
+    if ($tgdetail.Length -gt 500) { $tgdetail = $tgdetail.Substring(0, 500) }
     if (($p.ExitCode -eq 0) -and ($txt -match 'TELEGRAM\|REST=UP\|SESSION=SIGNED-IN')) {
       Test-Result 'E02-session-signed-in' 'PASS' 'REST up, Telegram authenticated'
-    } else { Fail 'E02-session-signed-in' 'not SIGNED-IN (bad/expired bundle or wrong key?)' }
+    } else { Fail 'E02-session-signed-in' "not SIGNED-IN [$tgdetail]" }
 
     . (Join-Path $Here 'Storage-Backend.ps1')
     $be = New-StorageBackend -Type TelegramRest -ApiKey $env:TG_API_KEY
