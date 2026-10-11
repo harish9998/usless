@@ -137,18 +137,33 @@ try {
     foreach ($obj in $delNames) {
       try { Storage-Delete $be $obj | Out-Null } catch {}
     }
-    # Deletes can be eventually consistent: poll before declaring failure.
-    $left = @()
+    # Our objects must be gone (poll for eventual consistency); FOREIGN
+    # pre-existing objects are reported, never auto-deleted. A foreign latest
+    # pointer is left alone; a pointer dangling at OUR deleted snapshot fails.
+    $all = @()
     for ($k = 1; $k -le 6; $k++) {
       Start-Sleep -Seconds 20
-      $left = @(Storage-List $be 'envsnap/' | Where-Object {
-        $_.name -like '*envsnap-*.zip' -or $_.name -like '*.manifest.json' -or $_.name -like '*latest.json' })
-      if ($left.Count -eq 0) { break }
+      $all = @(Storage-List $be 'envsnap/' | ForEach-Object { $_.name })
+      $sidObjs = @($all | Where-Object { $_ -like "*$sid*" })
+      if ($sidObjs.Count -eq 0) { break }
     }
-    if ($left.Count -gt 0) {
-      Fail 'R05-cleanup' ("store not clean: " + (($left | ForEach-Object { $_.name }) -join ','))
+    $sidObjs = @($all | Where-Object { $_ -like "*$sid*" })
+    if ($sidObjs.Count -gt 0) { Fail 'R05-cleanup' ("our objects remain: " + ($sidObjs -join ',')) }
+    $latestState = 'absent'
+    if (($all -contains 'envsnap/latest.json') -or ($all -contains 'latest.json')) {
+      try {
+        $lj2 = Join-Path $root 'latest2.json'
+        Storage-DownloadFile $be 'envsnap/latest.json' $lj2 | Out-Null
+        $ptr = (Get-Content $lj2 -Raw | ConvertFrom-Json).snapshot_id
+        if ($ptr -eq $sid) { Fail 'R05-cleanup' 'latest pointer dangles at deleted snapshot' }
+        $latestState = 'foreign pointer left alone'
+      } catch {
+        if ($_.Exception.Message -match '^\[R\d\d') { throw }
+        Fail 'R05-cleanup' 'latest pointer present but unreadable'
+      }
     }
-    Test-Result 'R05-cleanup' 'PASS' 'test snapshot removed from store'
+    $foreign = @($all | Where-Object { ($_ -notlike "*$sid*") -and ($_ -notlike '*latest.json') })
+    Test-Result 'R05-cleanup' 'PASS' ("our snapshot removed (latest $latestState); foreign left untouched: $($foreign.Count)")
   } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
   }
