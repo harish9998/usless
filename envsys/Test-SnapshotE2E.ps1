@@ -75,8 +75,14 @@ try {
     $done = $false
     try { Wait-Process -Id $p.Id -Timeout 600 -ErrorAction Stop; $done = $true } catch {}
     if (-not $done) { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}; Fail 'S02-signed-in' 'Enable hung' }
-    $state = ''; if (Test-Path -LiteralPath $res) { $state = (Get-Content -LiteralPath $res -Raw).Trim() }
-    if (-not ($state -eq 'SIGNED-IN')) { Fail 'S02-signed-in' "session=[$state]" }
+    $state = ''; $statedetail = ''
+    if (Test-Path -LiteralPath $res) {
+      $rawres = (Get-Content -LiteralPath $res -Raw).Trim()
+      $ix = $rawres.IndexOf('|')
+      if ($ix -ge 0) { $state = $rawres.Substring(0, $ix); $statedetail = $rawres.Substring($ix + 1) }
+      else { $state = $rawres }
+    }
+    if (-not ($state -eq 'SIGNED-IN')) { Fail 'S02-signed-in' "session=[$state] $statedetail" }
     Test-Result 'S02-signed-in' 'PASS' 'Telegram authenticated'
 
     $rid = $env:GITHUB_RUN_ID; if (-not $rid) { $rid = "local-$PID" }

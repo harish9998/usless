@@ -108,24 +108,32 @@ if (-not $up) { Phase 'REST' 'DOWN' "no /health in ${PollSeconds}s"; exit 1 }
 Phase 'REST' 'UP' '/health 200'
 
 # Authenticated probe: status code only, body never printed.
-$session = 'UNKNOWN'
+$session = 'UNKNOWN'; $httpmsg = ''
 try {
   $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/files?limit=1" -TimeoutSec 30 `
     -UseBasicParsing -Headers @{ 'X-API-Key' = $key } -ErrorAction Stop
   if ($r.StatusCode -eq 200) { $session = 'SIGNED-IN' } else { $session = "HTTP-$($r.StatusCode)" }
 } catch {
   $msg = $_.Exception.Message
+  # Status line only (e.g. "…(429) Too Many Requests."): never response bodies,
+  # which may contain user file names.
+  $httpmsg = (($msg -replace '\s+', ' ').Trim())
+  if ($httpmsg.Length -gt 100) { $httpmsg = $httpmsg.Substring(0, 100) }
   if ($msg -match '401|403') { $session = 'KEY-REJECTED' }
   elseif ($msg -match '503') { $session = 'SIGNED-OUT' }  # NOT_CONNECTED: REST up, no Telegram client
   elseif ($msg -match '500') { $session = 'SERVER-ERROR' }
   else { $session = 'PROBE-ERROR' }
 }
-Write-Output "TELEGRAM|REST=UP|SESSION=$session"
+Write-Output "TELEGRAM|REST=UP|SESSION=$session|HTTPMSG=$httpmsg"
 # Session state ALSO goes to ResultFile (callers must not rely on captured
 # stdout: redirected streams hide hang locations; exit codes stay coarse so
 # dummy-key runs keep passing on REST-up).
 if ($ResultFile) {
-  try { Set-Content -LiteralPath $ResultFile -Value $session -Encoding ascii -NoNewline -ErrorAction Stop } catch {}
+  try {
+    $payload = $session
+    if ($httpmsg) { $payload = "$session|$httpmsg" }
+    Set-Content -LiteralPath $ResultFile -Value $payload -Encoding ascii -NoNewline -ErrorAction Stop
+  } catch {}
 }
 if ($session -eq 'KEY-REJECTED') { exit 1 }
 exit 0

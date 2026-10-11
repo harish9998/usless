@@ -87,8 +87,13 @@ try {
       try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
       Fail 'E02-session-signed-in' 'Enable child hung >600s (killed)'
     }
-    $state = ''
-    if (Test-Path -LiteralPath $res) { $state = (Get-Content -LiteralPath $res -Raw).Trim() }
+    $state = ''; $statedetail = ''
+    if (Test-Path -LiteralPath $res) {
+      $rawres = (Get-Content -LiteralPath $res -Raw).Trim()
+      $ix = $rawres.IndexOf('|')
+      if ($ix -ge 0) { $state = $rawres.Substring(0, $ix); $statedetail = $rawres.Substring($ix + 1) }
+      else { $state = $rawres }
+    }
     # NOTE: $p.ExitCode reads back empty on this host even after orderly child
     # exit (observed twice), so the gate is done+ResultFile, not exit code.
     # 'SIGNED-IN' is written only on the child's success path, immediately
@@ -98,7 +103,7 @@ try {
     try { $p.Refresh(); $code = [string]$p.ExitCode } catch {}
     if ($done -and ($state -eq 'SIGNED-IN')) {
       Test-Result 'E02-session-signed-in' 'PASS' 'REST up, Telegram authenticated'
-    } else { Fail 'E02-session-signed-in' "done=$done exit=[$code] session=[$state] (want SIGNED-IN)" }
+    } else { Fail 'E02-session-signed-in' "done=$done exit=[$code] session=[$state] $statedetail (want SIGNED-IN)" }
 
     . (Join-Path $Here 'Storage-Backend.ps1')
     $be = New-StorageBackend -Type TelegramRest -ApiKey $env:TG_API_KEY
