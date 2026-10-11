@@ -22,6 +22,14 @@ function New-StorageBackend {
   return @{ Type = 'TelegramRest'; ApiKey = $ApiKey; BaseUrl = $BaseUrl.TrimEnd('/') }
 }
 
+function Curl-Max([int]$def) {
+  # Test override: $env:TG_CURL_MAX_SEC caps curl's -m for up/download/list/delete.
+  # Product default stays generous (600/60); e2e sets a tight budget.
+  $v = $env:TG_CURL_MAX_SEC
+  if ($v -match '^\d+$' -and ([int]$v -gt 0)) { return [string][int]$v }
+  return [string]$def
+}
+
 function Invoke-Curl {
   # Deterministic curl: native stderr/exit codes never rely on $ErrorActionPreference.
   # Exit 22 (HTTP error): probe the status code; 5xx/429/408 are transient (retry),
@@ -87,7 +95,7 @@ function Storage-UploadFile {
   }
   Invoke-WithRetry -Retryable $CurlRetryable -What "upload $Remote" -Op {
     $tmp = "$env:TEMP\tgup-$([guid]::NewGuid()).json"
-    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m','600','-H',("X-API-Key: " + $Backend.ApiKey),
+    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m',(Curl-Max 600),'-H',("X-API-Key: " + $Backend.ApiKey),
       '-F',("file=@" + $Local + ";filename=" + $Remote),
       ($Backend.BaseUrl + '/files'),'-o',$tmp) -What "upload $Remote" -ProbeUrl ($Backend.BaseUrl + '/files')
     $resp = Get-Content -LiteralPath $tmp -Raw | ConvertFrom-Json
@@ -126,7 +134,7 @@ function Storage-List {
     $u = $Backend.BaseUrl + '/files?limit=100'
     if ($Prefix) { $u += '&search=' + [uri]::EscapeDataString($Prefix) }
     $cap = "$env:TEMP\tgls-$([guid]::NewGuid()).json"
-    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m','60','-H',("X-API-Key: " + $Backend.ApiKey),$u,'-o',$cap) -What "list $Prefix" -ProbeUrl $u
+    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m',(Curl-Max 60),'-H',("X-API-Key: " + $Backend.ApiKey),$u,'-o',$cap) -What "list $Prefix" -ProbeUrl $u
     $t = Get-Content -LiteralPath $cap -Raw; Remove-Item $cap -Force -ErrorAction SilentlyContinue
     if (-not $t) { throw "list $Prefix returned empty response" }
     $t
@@ -149,7 +157,7 @@ function Storage-DownloadFile {
   Invoke-WithRetry -Retryable $CurlRetryable -What "download $Remote" -Op {
     $id = (Storage-List $Backend $Remote | Where-Object { $_.name -eq $Remote } | Select-Object -First 1).id
     if (-not $id) { throw "Remote missing: $Remote" }
-    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m','600','-H',("X-API-Key: " + $Backend.ApiKey),
+    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m',(Curl-Max 600),'-H',("X-API-Key: " + $Backend.ApiKey),
       ($Backend.BaseUrl + "/files/$id/download"),'-o',$Local) -What "download $Remote" -ProbeUrl ($Backend.BaseUrl + "/files/$id/download")
     $tmp = "$Local.td-sync-tmp"
     Move-Item -LiteralPath $Local -Destination $tmp -Force
@@ -168,7 +176,7 @@ function Storage-Delete {
   Invoke-WithRetry -Retryable $CurlRetryable -What "delete $Remote" -Op {
     $id = (Storage-List $Backend $Remote | Where-Object { $_.name -eq $Remote } | Select-Object -First 1).id
     if (-not $id) { Write-Output "STORAGE|OP=DELETE|REMOTE=$Remote|STATUS=SKIP-MISSING"; return }
-    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m','60','-X','DELETE','-H',("X-API-Key: " + $Backend.ApiKey),
+    Invoke-Curl -CurlArgs @('-sS','--fail-with-body','-m',(Curl-Max 60),'-X','DELETE','-H',("X-API-Key: " + $Backend.ApiKey),
       ($Backend.BaseUrl + "/files/$id")) -What "delete $Remote" -ProbeUrl ($Backend.BaseUrl + "/files/$id")
     Write-Output "STORAGE|OP=DELETE|REMOTE=$Remote|STATUS=SUCCESS"
   } | Write-Output

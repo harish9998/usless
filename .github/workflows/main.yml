@@ -148,6 +148,7 @@ jobs:
 
       - name: Telegram end-to-end persistence transaction (synthetic, needs secrets)
         if: ${{ inputs.mode == 'telegram-e2e' }}
+        timeout-minutes: 25
         run: |
           # Decisive backend test. Requires TG_API_KEY + TG_SESSION_B64[_N] secrets
           # (set by YOU in repo Settings; never pasted anywhere). Without them the
@@ -172,6 +173,8 @@ jobs:
           Copy-Item -LiteralPath "${{ github.workspace }}\envsys\Probe-TelegramInstall.ps1" -Destination "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -Force
           powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -PollSeconds 60
           if ($LASTEXITCODE -ne 0) { Write-Error "Telegram app install failed - see PROBE| lines."; exit 1 }
+          # Tight curl budget for the 1 KB synthetic object (product defaults stay).
+          $env:TG_CURL_MAX_SEC = '90'
           powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-TelegramE2E.ps1'
           $code = $LASTEXITCODE
           Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
