@@ -56,13 +56,13 @@ previous-good snapshot, so at least one recoverable snapshot survives pruning.
 
 ## Limits (honest)
 
-- Telegram is PROVISIONAL, not viable-yet: its REST API belongs to the Telegram Drive
-  desktop app (`127.0.0.1:8550`, disabled by default, app must be open and signed in;
-  session data is local, API hash lives in the OS credential manager). A fresh runner
-  has none of that. Until a clean-runner test proves install → sign-in (or session
-  restore) → `/health` → authenticated publish/list/download/hash-verify works
-  unattended, do not build on it. If sign-in needs a human every run, change the
-  storage backend instead.
+- Telegram backend: PROVEN 2026-10-11 for the seeded-session path (fresh-runner
+  silent install -> headless launch -> seeded api_settings autostart -> session
+  auto-connect -> synthetic publish/download/hash-verify -> Runner-A to Runner-B
+  restore -> cleanup; LocalDir chain 17/17 alongside). Remaining constraints:
+  dedicated backup-only account (never personal long-term), 48 KB-per-secret
+  size gate, app-closed session export. Pre-existing Oct-3 `TGLIVE*` objects in
+  the store are foreign leftovers, reported but never auto-deleted.
 - 250 GB capacity, per-file caps (we split zips at 1.5 GB against the 2 GB/file cap),
   and rate limits are unverified against the live service — measure before relying.
 - Heartbeat ~5 min, snapshots ~15 min: up to 15 min of work at risk; corruption rolls
