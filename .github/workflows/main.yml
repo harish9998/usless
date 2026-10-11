@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'rdp = desktop; test = LocalDir harness; probe = Telegram install probe; telegram-e2e = real backend transaction (needs secrets)'
+        description: 'rdp = desktop; test = LocalDir harness; probe = install probe; telegram-e2e = backend transaction; snapshot-e2e = Runner A publish; restore-e2e = Runner B restore'
         required: false
         default: 'rdp'
         type: choice
-        options: [rdp, test, probe, telegram-e2e]
+        options: [rdp, test, probe, telegram-e2e, snapshot-e2e, restore-e2e]
 
 jobs:
   secure-rdp:
@@ -182,6 +182,66 @@ jobs:
           for ($k = 1; $k -le 9; $k++) { Remove-Item "Env:\TG_SESSION_B64_$k" -ErrorAction SilentlyContinue }
           if ($code -ne 0) { Write-Error "Telegram E2E FAILED - see TEST| lines above."; exit 1 }
           Write-Host "TELEGRAM-E2E|STATUS=READY"
+
+      - name: Snapshot E2E, Runner A side (publish synthetic snapshot via Telegram)
+        if: ${{ inputs.mode == 'snapshot-e2e' }}
+        timeout-minutes: 30
+        run: |
+          # Acceptance part 1 of 2. Publishes ONE synthetic snapshot to the real
+          # store and verifies it independently. Requires TG_API_KEY + bundle.
+          $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+          if ([string]::IsNullOrWhiteSpace($env:TG_API_KEY)) { $env:TG_API_KEY = "${{ secrets.TG_API }}" }
+          $env:TG_SESSION_B64 = "${{ secrets.TG_SESSION_B64 }}"
+          $env:TG_SESSION_B64_1 = "${{ secrets.TG_SESSION_B64_1 }}"
+          $env:TG_SESSION_B64_2 = "${{ secrets.TG_SESSION_B64_2 }}"
+          $env:TG_SESSION_B64_3 = "${{ secrets.TG_SESSION_B64_3 }}"
+          $env:TG_SESSION_B64_4 = "${{ secrets.TG_SESSION_B64_4 }}"
+          $env:TG_SESSION_B64_5 = "${{ secrets.TG_SESSION_B64_5 }}"
+          $env:TG_SESSION_B64_6 = "${{ secrets.TG_SESSION_B64_6 }}"
+          $env:TG_SESSION_B64_7 = "${{ secrets.TG_SESSION_B64_7 }}"
+          $env:TG_SESSION_B64_8 = "${{ secrets.TG_SESSION_B64_8 }}"
+          $env:TG_SESSION_B64_9 = "${{ secrets.TG_SESSION_B64_9 }}"
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\Probe-TelegramInstall.ps1" -Destination "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -PollSeconds 60
+          if ($LASTEXITCODE -ne 0) { Write-Error "Telegram app install failed - see PROBE| lines."; exit 1 }
+          $env:TG_CURL_MAX_SEC = '90'
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-SnapshotE2E.ps1'
+          $code = $LASTEXITCODE
+          Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TG_SESSION_B64 -ErrorAction SilentlyContinue
+          for ($k = 1; $k -le 9; $k++) { Remove-Item "Env:\TG_SESSION_B64_$k" -ErrorAction SilentlyContinue }
+          if ($code -ne 0) { Write-Error "Snapshot E2E FAILED - see TEST| lines above."; exit 1 }
+          Write-Host "SNAPSHOT-E2E|STATUS=READY"
+
+      - name: Restore E2E, Runner B side (fresh runner restores + cleans store)
+        if: ${{ inputs.mode == 'restore-e2e' }}
+        timeout-minutes: 30
+        run: |
+          # Acceptance part 2 of 2. Run on a FRESH runner after snapshot-e2e.
+          # Restores Runner A's snapshot, verifies content, removes test objects.
+          $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
+          if ([string]::IsNullOrWhiteSpace($env:TG_API_KEY)) { $env:TG_API_KEY = "${{ secrets.TG_API }}" }
+          $env:TG_SESSION_B64 = "${{ secrets.TG_SESSION_B64 }}"
+          $env:TG_SESSION_B64_1 = "${{ secrets.TG_SESSION_B64_1 }}"
+          $env:TG_SESSION_B64_2 = "${{ secrets.TG_SESSION_B64_2 }}"
+          $env:TG_SESSION_B64_3 = "${{ secrets.TG_SESSION_B64_3 }}"
+          $env:TG_SESSION_B64_4 = "${{ secrets.TG_SESSION_B64_4 }}"
+          $env:TG_SESSION_B64_5 = "${{ secrets.TG_SESSION_B64_5 }}"
+          $env:TG_SESSION_B64_6 = "${{ secrets.TG_SESSION_B64_6 }}"
+          $env:TG_SESSION_B64_7 = "${{ secrets.TG_SESSION_B64_7 }}"
+          $env:TG_SESSION_B64_8 = "${{ secrets.TG_SESSION_B64_8 }}"
+          $env:TG_SESSION_B64_9 = "${{ secrets.TG_SESSION_B64_9 }}"
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\Probe-TelegramInstall.ps1" -Destination "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\Probe-TelegramInstall.ps1" -PollSeconds 60
+          if ($LASTEXITCODE -ne 0) { Write-Error "Telegram app install failed - see PROBE| lines."; exit 1 }
+          $env:TG_CURL_MAX_SEC = '90'
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Test-RestoreE2E.ps1'
+          $code = $LASTEXITCODE
+          Remove-Item Env:\TG_API_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TG_SESSION_B64 -ErrorAction SilentlyContinue
+          for ($k = 1; $k -le 9; $k++) { Remove-Item "Env:\TG_SESSION_B64_$k" -ErrorAction SilentlyContinue }
+          if ($code -ne 0) { Write-Error "Restore E2E FAILED - see TEST| lines above."; exit 1 }
+          Write-Host "RESTORE-E2E|STATUS=READY"
 
       - name: Setup personal stack (auto)
         if: ${{ inputs.mode == 'rdp' }}
