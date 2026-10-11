@@ -89,9 +89,11 @@ try {
     }
     $state = ''
     if (Test-Path -LiteralPath $res) { $state = (Get-Content -LiteralPath $res -Raw).Trim() }
-    if (($p.ExitCode -eq 0) -and ($state -eq 'SIGNED-IN')) {
+    $code = -999
+    try { $p.Refresh(); $code = $p.ExitCode } catch {}
+    if (($code -eq 0) -and ($state -eq 'SIGNED-IN')) {
       Test-Result 'E02-session-signed-in' 'PASS' 'REST up, Telegram authenticated'
-    } else { Fail 'E02-session-signed-in' "exit=$($p.ExitCode) session=[$state] (want SIGNED-IN)" }
+    } else { Fail 'E02-session-signed-in' "exit=$code session=[$state] (want SIGNED-IN)" }
 
     . (Join-Path $Here 'Storage-Backend.ps1')
     $be = New-StorageBackend -Type TelegramRest -ApiKey $env:TG_API_KEY
