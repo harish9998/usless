@@ -19,7 +19,7 @@
 # Verdict stdout: TELEGRAM|REST=UP|DOWN  TELEGRAM|SESSION=SIGNED-IN|SIGNED-OUT|UNKNOWN
 # Exit 0 = REST up (session state reported honestly). Exit 1 = REST not up.
 # Session files are live credentials: never snapshot, archive, or print them.
-param([string]$AppExe = '', [string]$DataDir = '', [int]$Port = 8550, [int]$PollSeconds = 240)
+param([string]$AppExe = '', [string]$DataDir = '', [int]$Port = 8550, [int]$PollSeconds = 240, [string]$ResultFile = '')
 $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source this file: execute it.' }
 function Phase([string]$c, [string]$s, [string]$d = '') { Write-Output "TELEGRAM|COMPONENT=$c|STATUS=$s|DETAIL=$d" }
@@ -121,5 +121,11 @@ try {
   else { $session = 'PROBE-ERROR' }
 }
 Write-Output "TELEGRAM|REST=UP|SESSION=$session"
+# Session state ALSO goes to ResultFile (callers must not rely on captured
+# stdout: redirected streams hide hang locations; exit codes stay coarse so
+# dummy-key runs keep passing on REST-up).
+if ($ResultFile) {
+  try { Set-Content -LiteralPath $ResultFile -Value $session -Encoding ascii -NoNewline -ErrorAction Stop } catch {}
+}
 if ($session -eq 'KEY-REJECTED') { exit 1 }
 exit 0

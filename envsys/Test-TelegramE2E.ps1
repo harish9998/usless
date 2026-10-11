@@ -74,18 +74,24 @@ try {
     Test-Result 'E01-bundle-decode' 'PASS' 'bundle extracted, required files present'
 
     $env:TG_SESSION_DIR = $sdir
-    $cap = Join-Path $root 'enable.txt'
-    $flat = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Here 'Enable-TelegramRest.ps1'))
+    # Stream the child live (no output redirect: buffering hides hang locations).
+    # Session verdict travels via ResultFile; Wait-Process bounds the child.
+    $res = Join-Path $root 'session.result'
+    $flat = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Here 'Enable-TelegramRest.ps1'), '-ResultFile', $res)
     $exe = (Get-Command powershell -ErrorAction SilentlyContinue)
     if (-not $exe) { $exe = (Get-Command pwsh -ErrorAction SilentlyContinue) }
-    $p = Start-Process -FilePath $exe.Source -ArgumentList $flat -NoNewWindow -Wait -PassThru -RedirectStandardOutput $cap
-    $txt = Get-Content -LiteralPath $cap -Raw
-    $tglines = @(Get-Content -LiteralPath $cap | Where-Object { $_ -match 'TELEGRAM\|' } | Select-Object -Last 6)
-    $tgdetail = ($tglines -join ' / ')
-    if ($tgdetail.Length -gt 500) { $tgdetail = $tgdetail.Substring(0, 500) }
-    if (($p.ExitCode -eq 0) -and ($txt -match 'TELEGRAM\|REST=UP\|SESSION=SIGNED-IN')) {
+    $p = Start-Process -FilePath $exe.Source -ArgumentList $flat -NoNewWindow -PassThru
+    $done = $false
+    try { Wait-Process -Id $p.Id -Timeout 600 -ErrorAction Stop; $done = $true } catch {}
+    if (-not $done) {
+      try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+      Fail 'E02-session-signed-in' 'Enable child hung >600s (killed)'
+    }
+    $state = ''
+    if (Test-Path -LiteralPath $res) { $state = (Get-Content -LiteralPath $res -Raw).Trim() }
+    if (($p.ExitCode -eq 0) -and ($state -eq 'SIGNED-IN')) {
       Test-Result 'E02-session-signed-in' 'PASS' 'REST up, Telegram authenticated'
-    } else { Fail 'E02-session-signed-in' "not SIGNED-IN [$tgdetail]" }
+    } else { Fail 'E02-session-signed-in' "exit=$($p.ExitCode) session=[$state] (want SIGNED-IN)" }
 
     . (Join-Path $Here 'Storage-Backend.ps1')
     $be = New-StorageBackend -Type TelegramRest -ApiKey $env:TG_API_KEY
