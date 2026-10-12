@@ -283,6 +283,29 @@ jobs:
           }
           Write-Host "TCP connectivity successful!"
 
+      - name: Write RDP connection card (machine-readable IP)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          $card = "$env:RUNNER_TEMP\rdp-connection.txt"
+          @(
+            "address=$env:TAILSCALE_IP",
+            "port=3389",
+            "username=RDP",
+            "run_id=$env:GITHUB_RUN_ID",
+            "mode=rdp"
+          ) | Out-File -LiteralPath $card -Encoding ascii
+          Get-Content -LiteralPath $card
+          Write-Host "Card written: $card"
+
+      - name: Upload RDP connection card
+        if: ${{ inputs.mode == 'rdp' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-connection-${{ github.run_id }}
+          path: ${{ runner.temp }}/rdp-connection.txt
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Maintain Connection (stay-alive watchdog)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
