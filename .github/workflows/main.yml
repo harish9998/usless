@@ -54,13 +54,8 @@ jobs:
       - name: Create RDP User with Fixed Password
         if: ${{ inputs.mode == 'rdp' }}
         run: |
-          $password = "${{ secrets.RDP_PASSWORD }}"
-          if ([string]::IsNullOrWhiteSpace($password)) {
-              $password = "Runner@12345"
-              Write-Host "RDP_PASSWORD secret empty - using common password."
-          } else {
-              Write-Host "RDP_PASSWORD secret present - using secret."
-          }
+          $password = "Runner@12345"
+          Write-Host "Using common password (secret removed per owner request)."
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
