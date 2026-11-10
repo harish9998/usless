@@ -54,8 +54,9 @@ jobs:
       - name: Create RDP User with Fixed Password
         if: ${{ inputs.mode == 'rdp' }}
         run: |
-          $password = "Runner@12345"
-          Write-Host "Using common password (secret removed per owner request)."
+          $password = "${{ secrets.RDP_PASSWORD }}"
+          if ([string]::IsNullOrWhiteSpace($password)) { $password = "Runner@12345" }
+          Write-Host "Using RDP_PASSWORD secret (length only): $($password.Length)"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
@@ -282,12 +283,18 @@ jobs:
 
       - name: Write RDP connection card (machine-readable IP)
         if: ${{ inputs.mode == 'rdp' }}
+        env:
+          RDP_PASS_FROM_SECRET: ${{ secrets.RDP_PASSWORD }}
         run: |
+          # Password lives in the card so the local launcher can auto-login
+          # (cmdkey TERMSRV). Ephemeral 6h machine, nothing sensitive persists.
+          $pw = if (-not [string]::IsNullOrWhiteSpace($env:RDP_PASS_FROM_SECRET)) { $env:RDP_PASS_FROM_SECRET } else { 'Runner@12345' }
           $card = "$env:RUNNER_TEMP\rdp-connection.txt"
           @(
             "address=$env:TAILSCALE_IP",
             "port=3389",
             "username=RDP",
+            "password=$pw",
             "run_id=$env:GITHUB_RUN_ID",
             "mode=rdp"
           ) | Out-File -LiteralPath $card -Encoding ascii
@@ -333,13 +340,15 @@ jobs:
               $hb = @{
                   runner_id = "gh-runner-$env:GITHUB_RUN_ID"
                   timestamp = (Get-Date).ToString('o')
+                  beat = $n
                   state = 'healthy'
                   persistence = 'NOT-READY-no-durable-store'
                   disk_free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
                   memory_free_gb = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB / 1024, 1)
-                  work_revision = if (Test-Path 'C:\Work') { (Get-ChildItem 'C:\Work' -Recurse -File | Measure-Object).Count } else { 0 }
+                  work_revision = if (Test-Path 'C:\Work') { (Get-ChildItem 'C:\Work' -Recurse -File -Force | Measure-Object).Count } else { 0 }
               } | ConvertTo-Json -Compress
-              $hb | Out-File -LiteralPath "$env:TEMP\heartbeat-$n.json" -Encoding ascii -NoNewline
+              # Rotating single file (was heartbeat-$n.json unbounded for 6h); keeps disk clean.
+              $hb | Out-File -LiteralPath "$env:TEMP\heartbeat-current.json" -Encoding ascii -NoNewline
               Write-Host "[$(Get-Date)] HEARTBEAT n=$n (local only; PERSISTENCE NOT READY)"
               # Full environment snapshot to Telegram (~15 min, only when TG key + envsys present)
               if (($n % 3 -eq 0) -and (-not [string]::IsNullOrWhiteSpace("${{ secrets.TG_API_KEY }}")) -and (Test-Path 'C:\Work\envsys\Publish-EnvSnapshot.ps1')) {
