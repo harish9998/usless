@@ -12,7 +12,7 @@
 param(
   [string]$Repo = 'harish9998/usless',
   [string]$Workflow = 'win 11 + tailscale + Download.bat script',
-  [string]$Password = 'Runner@12345',
+  [string]$Password = '',
   [switch]$New,
   [switch]$Ssh,
   [switch]$Desktop,
@@ -54,7 +54,7 @@ if (-not $run) {
 $runId = if ($run) { $run.databaseId } else { 0 }
 Write-Output "RUN|id=$runId|status=$($run.status)"
 
-# 2. Wait for the connection card artifact (IP + password)
+# 2. Wait for the connection card artifact (IP + user; card never carries the password)
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
 $card = $null
 while ((Get-Date) -lt $deadline) {
@@ -64,22 +64,32 @@ while ((Get-Date) -lt $deadline) {
 }
 if (-not $card -or -not $card['address']) { throw "No rdp-connection card after $TimeoutSec s (artifact = RDP ready beacon)" }
 $ip, $user = $card['address'], $card['username']
-if ($card['password']) { $Password = $card['password'] }
+# Prefer an explicit -Password; else the local env var. Never read a password from the card.
+if ([string]::IsNullOrWhiteSpace($Password)) {
+  $Password = $env:RDP_PASSWORD
+}
 Write-Output "CARD|ip=$ip|user=$user|port=$($card['port'])"
+if ($Ssh -and -not $Desktop -and (Test-Path (Join-Path $env:USERPROFILE '.ssh\id_ed25519'))) {
+  Write-Output "AUTH|ssh-key (no password needed)"
+} elseif ([string]::IsNullOrWhiteSpace($Password)) {
+  throw "No password available. Set `$env:RDP_PASSWORD locally (the card no longer carries it); SSH key auth is preferred."
+}
 
 # 3. Reachability sanity check
 $ok = (Test-NetConnection -ComputerName $ip -Port 3389 -WarningAction SilentlyContinue).TcpTestSucceeded
 if (-not $ok) { throw "RDP port 3389 unreachable on $ip (tailnet/offline?)" }
 
-# 4. Store credentials so mstsc does NOT prompt (ephemeral machine, non-sensitive)
-cmdkey /generic:TERMSRV/$ip /user:$user /pass:$Password | Out-Null
-# Allow saved credentials in mstsc (HKLM needs elevation; best-effort)
-try {
-  reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' /v DisablePasswordSaving /t REG_DWORD /d 0 /f | Out-Null
-} catch { Write-Warning 'Could not set DisablePasswordSaving (not elevated) - prompt may still appear.' }
+# 4. Store credentials so mstsc does NOT prompt (only if we actually have a password)
+if (-not [string]::IsNullOrWhiteSpace($Password)) {
+  cmdkey /generic:TERMSRV/$ip /user:$user /pass:$Password | Out-Null
+  # Allow saved credentials in mstsc (HKLM needs elevation; best-effort)
+  try {
+    reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' /v DisablePasswordSaving /t REG_DWORD /d 0 /f | Out-Null
+  } catch { Write-Warning 'Could not set DisablePasswordSaving (not elevated) - prompt may still appear.' }
+}
 
-# 5. Clipboard fallback: password ready to paste if mstsc still prompts
-Set-Clipboard -Value $Password
+# 5. Clipboard fallback: only when a password was supplied locally
+if (-not [string]::IsNullOrWhiteSpace($Password)) { Set-Clipboard -Value $Password }
 
 # 6. Launch (terminal by default in -Ssh mode; mstsc otherwise)
 if ($Ssh -and -not $Desktop) {
@@ -92,6 +102,5 @@ if ($Ssh -and -not $Desktop) {
 } else {
   Write-Output "CONNECT|ip=$ip|user=$user|status=LAUNCHING"
   Start-Process mstsc.exe -ArgumentList "/v:$ip /w:1280 /h:800"
-  Set-Clipboard -Value $Password  # keep on clipboard in case prompt appears
-  Write-Output "DONE|ip=$ip|user=$user|password-on-clipboard=1"
+  Write-Output "DONE|ip=$ip|user=$user"
 }
