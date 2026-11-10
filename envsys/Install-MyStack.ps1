@@ -42,6 +42,16 @@ if (Get-Command opencode -ErrorAction SilentlyContinue) {
   Write-Host ("CLI opencode: " + (opencode --version 2>$null))
 } else { Write-Host 'CLI opencode: FAIL (npm install failed?)'; $fail++ }
 
+Write-Step '2c/6 Video-skills index (always present, clonable extra skills on demand)'
+$skillsDir = Join-Path $WorkDir 'skills\awesome-claude-video-skills'
+if (Test-Path (Join-Path $skillsDir '.git')) {
+  git -C $skillsDir pull --depth 1 2>&1 | Select-Object -Last 1
+} else {
+  New-Item -ItemType Directory (Join-Path $WorkDir 'skills') -Force | Out-Null
+  git clone --depth 1 https://github.com/zhuyansen/awesome-claude-video-skills.git $skillsDir 2>&1 | Select-Object -Last 1
+}
+if (Test-Path $skillsDir) { Write-Host "SKILLS|path=$skillsDir" } else { Write-Host 'SKILLS|FAIL' }
+
 Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
 $dv = (docker version --format '{{.Server.Version}}' 2>$null)
 if ($dv) { Write-Host "ok: docker engine $dv" }
