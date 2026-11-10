@@ -14,6 +14,8 @@ param(
   [string]$Workflow = 'win 11 + tailscale + Download.bat script',
   [string]$Password = 'Runner@12345',
   [switch]$New,
+  [switch]$Ssh,
+  [switch]$Desktop,
   [int]$TimeoutSec = 900
 )
 $ErrorActionPreference = 'Stop'
@@ -79,8 +81,17 @@ try {
 # 5. Clipboard fallback: password ready to paste if mstsc still prompts
 Set-Clipboard -Value $Password
 
-# 6. Launch
-Write-Output "CONNECT|ip=$ip|user=$user|status=LAUNCHING"
-Start-Process mstsc.exe -ArgumentList "/v:$ip /w:1280 /h:800"
-Set-Clipboard -Value $Password  # keep on clipboard in case prompt appears
-Write-Output "DONE|ip=$ip|user=$user|password-on-clipboard=1"
+# 6. Launch (terminal by default in -Ssh mode; mstsc otherwise)
+if ($Ssh -and -not $Desktop) {
+  $keyFile = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
+  $sshArgs = @('-o','StrictHostKeyChecking=accept-new')
+  if (Test-Path $keyFile) { $sshArgs = @('-o','StrictHostKeyChecking=accept-new','-i',$keyFile) }
+  Write-Output "CONNECT-SSH|ip=$ip|user=$user|OPENING-TERMINAL"
+  Start-Process ssh -ArgumentList ($sshArgs + @('-l', $user, $ip))
+  Write-Output "DONE|ssh|$ip"
+} else {
+  Write-Output "CONNECT|ip=$ip|user=$user|status=LAUNCHING"
+  Start-Process mstsc.exe -ArgumentList "/v:$ip /w:1280 /h:800"
+  Set-Clipboard -Value $Password  # keep on clipboard in case prompt appears
+  Write-Output "DONE|ip=$ip|user=$user|password-on-clipboard=1"
+}

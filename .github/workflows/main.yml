@@ -72,6 +72,28 @@ jobs:
               exit 1
           }
 
+      - name: Install SSH server (headless terminal-only access)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          $svc = Get-Service sshd -ErrorAction SilentlyContinue
+          if (-not $svc) { Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null }
+          Set-Service sshd -StartupType Automatic
+          Start-Service sshd -ErrorAction SilentlyContinue
+          netsh advfirewall firewall delete rule name="SSH-Tailscale" 2>$null | Out-Null
+          netsh advfirewall firewall add rule name="SSH-Tailscale" dir=in action=allow protocol=TCP localport=22 | Out-Null
+          New-Item -ItemType Directory 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell `
+            -Value 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -PropertyType String -Force | Out-Null
+          $key = "${{ secrets.SSH_PUBLIC_KEY }}"
+          if (-not [string]::IsNullOrWhiteSpace($key)) {
+              # admins_authorized_keys = works for any Administrators member (RDP user is one)
+              $file = 'C:\ProgramData\ssh\administrators_authorized_keys'
+              [IO.File]::WriteAllText($file, ($key.Trim() + "`n"))   # LF only, no CRLF
+              icacls $file /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\Administrators:F' | Out-Null
+              Write-Host "SSH|KEYAUTH=ENABLED"
+          } else { Write-Host "SSH|KEYAUTH=ABSENT (SSH_PUBLIC_KEY secret not set; password auth only)" }
+          Write-Host "SSH|STATUS=$((Get-Service sshd).Status) PORT22=OK"
+
       - name: Install Tailscale
         if: ${{ inputs.mode == 'rdp' }}
         run: |
