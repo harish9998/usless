@@ -21,6 +21,7 @@ if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source: execute it
 
 function Get-Card([int64]$RunId) {
   $dir = Join-Path $env:TEMP "rdpcard-$RunId"
+  if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
   gh run download $RunId --repo $Repo --name "rdp-connection-$RunId" --dir $dir 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { return $null }
   $card = Join-Path $dir 'rdp-connection.txt'
