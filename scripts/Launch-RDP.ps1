@@ -34,14 +34,15 @@ function Get-Card([int64]$RunId) {
 }
 
 # 1. Find or dispatch the run
-$run = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status |
-  ConvertFrom-Json | Where-Object { $_.status -ne 'completed' } | Select-Object -First 1
+$runs = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status | ConvertFrom-Json
+$run = @($runs) | Where-Object { $_.status -ne 'completed' } | Select-Object -First 1
 if (-not $run) {
   if ($New) {
     gh workflow run $Workflow --repo $Repo -f mode=rdp
     Write-Output 'DISPATCH|STATUS=SENT'
     Start-Sleep -Seconds 20
-    $run = gh run list --repo $Repo --workflow $Workflow --limit 1 --json databaseId,status | ConvertFrom-Json | Select-Object -First 1
+    $runs = gh run list --repo $Repo --workflow $Workflow --limit 1 --json databaseId,status | ConvertFrom-Json
+    $run = @($runs) | Select-Object -First 1
   } else {
     Write-Warning 'No active run. Use -New to dispatch one.'
     exit 1
