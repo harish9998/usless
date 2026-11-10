@@ -266,11 +266,14 @@ jobs:
       - name: Setup personal stack (auto)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
-          # Runs YOUR C:\Work\Install-MyStack.ps1 if you created it (edit once, applied every rebirth).
+          # Runs YOUR stack installer if C:\Work has it (restored), else the repo
+          # copy (fresh runner). Edit envsys\Install-MyStack.ps1 once, applied every rebirth.
           if (Test-Path 'C:\Work\Install-MyStack.ps1') {
               powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\Install-MyStack.ps1'
+          } elseif (Test-Path '${{ github.workspace }}\envsys\Install-MyStack.ps1') {
+              powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Install-MyStack.ps1' -WorkDir 'C:\Work'
           } else {
-              Write-Host "No C:\Work\Install-MyStack.ps1 - skipping (create it to auto-install your tools)."
+              Write-Host "No Install-MyStack.ps1 anywhere - skipping."
           }
 
       - name: Environment bootstrap (Telegram snapshots)

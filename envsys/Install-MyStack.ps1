@@ -17,14 +17,30 @@ $declared = @()
 if (Test-Path $manifest) {
   $man = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
   $declared = @($man.tools)
+  # Cache: one winget list call serves install-check + health gate (was 2N subprocess calls).
+  $wingetCache = winget list --exact 2>$null | Out-String
   foreach ($t in $declared) {
-    $have = winget list --id $t.winget --exact 2>$null | Select-String -Pattern ([regex]::Escape($t.winget))
+    $have = $wingetCache | Select-String -Pattern ([regex]::Escape($t.winget)) -SimpleMatch
     if (-not $have) {
       Write-Host ("installing missing: " + $t.winget)
       winget install -e --id $t.winget --silent --accept-package-agreements --accept-source-agreements | Out-Null
+      $wingetCache = winget list --exact 2>$null | Out-String
     } else { Write-Host ("ok: " + $t.winget) }
   }
 } else { Write-Host 'No machine.manifest.json in C:\Work - skipping tool check.' }
+
+Write-Step '2b/6 AI CLIs (npm global: opencode + Qoder CN/INTL, idempotent)'
+$npmCache = (npm ls -g --depth=0 2>$null | Out-String)
+$cliPkgs  = @('opencode-ai', '@qoder-ai/qodercli', '@qodercn-ai/qoderclicn')
+foreach ($p in $cliPkgs) {
+  if ($npmCache -notmatch ([regex]::Escape($p))) {
+    Write-Host "installing CLI: $p"
+    npm install -g $p 2>&1 | Select-Object -Last 2 | Out-Null
+  } else { Write-Host "ok CLI: $p" }
+}
+if (Get-Command opencode -ErrorAction SilentlyContinue) {
+  Write-Host ("CLI opencode: " + (opencode --version 2>$null))
+} else { Write-Host 'CLI opencode: FAIL (npm install failed?)'; $fail++ }
 
 Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
 $dv = (docker version --format '{{.Server.Version}}' 2>$null)
@@ -58,7 +74,7 @@ foreach ($c in $checks) {
 }
 # Declared tools are REQUIRED: a missing declared tool fails the gate (no false READY).
 foreach ($t in $declared) {
-  $ok = [bool](winget list --id $t.winget --exact 2>$null | Select-String -Pattern ([regex]::Escape($t.winget)))
+  $ok = [bool]($wingetCache | Select-String -Pattern ([regex]::Escape($t.winget)) -SimpleMatch)
   Write-Host ('Tool ' + $t.winget + ': ' + ($(if ($ok) { 'OK' } else { 'FAIL'; $fail++ })))
 }
 if ($fail -gt 0) { exit 1 }
