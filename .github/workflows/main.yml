@@ -281,6 +281,18 @@ jobs:
               Write-Host "No Install-MyStack.ps1 anywhere - skipping."
           }
 
+      - name: Restore AI credentials (login-free boot)
+        if: ${{ inputs.mode == 'rdp' }}
+        env:
+          OPENCODE_CONFIG_B64: ${{ secrets.OPENCODE_CONFIG_B64 }}
+          OPENCODE_AUTH_B64: ${{ secrets.OPENCODE_AUTH_B64 }}
+          QODER_AUTH_B64: ${{ secrets.QODER_AUTH_B64 }}
+          GH_TOKEN_RESTORE: ${{ secrets.GH_TOKEN }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Restore-AICredentials.ps1'
+          # Never fail the run if a blob is absent - baseline degrades gracefully.
+          exit 0
+
       - name: Environment bootstrap (Telegram snapshots)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
