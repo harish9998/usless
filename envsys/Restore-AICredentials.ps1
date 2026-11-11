@@ -28,6 +28,7 @@ $profiles = @($env:USERPROFILE, 'C:\Users\RDP') | Where-Object { Test-Path (Spli
 # --- opencode: config (providers/keys) + auth store ---
 $ocCfg  = Restore-Zip $env:OPENCODE_CONFIG_B64 (Join-Path $env:TEMP '_occfg')
 $ocAuth = Restore-Zip $env:OPENCODE_AUTH_B64   (Join-Path $env:TEMP '_ocauth')
+$qAuth  = Restore-Zip $env:QODER_AUTH_B64      (Join-Path $env:TEMP '_qauth')
 foreach ($u in $profiles) {
   if ($ocCfg) {
     $d = Join-Path $u '.config\opencode'
@@ -40,7 +41,7 @@ foreach ($u in $profiles) {
     Copy-Item (Join-Path $env:TEMP '_ocauth\auth.json') $d -Force
   }
   # --- qoder (INTL CLI): .auth\user + machine_id ---
-  if ($env:QODER_AUTH_B64 -and (Test-Path (Join-Path $env:TEMP '_qauth'))) {
+  if ($qAuth) {
     $qd = Join-Path $u '.qoder\.auth'
     New-Item -ItemType Directory $qd -Force | Out-Null
     Copy-Item (Join-Path $env:TEMP '_qauth\qoder_user') (Join-Path $qd 'user') -Force
@@ -53,7 +54,7 @@ foreach ($u in $profiles) {
 }
 Write-Host "RESTORE|OPENCODE|CONFIG=$(if ($ocCfg) {'OK'} else {'SKIP'})"
 Write-Host "RESTORE|OPENCODE|AUTH=$(if ($ocAuth) {'OK'} else {'SKIP'})"
-Write-Host "RESTORE|QODER|AUTH=$(if (Test-Path (Join-Path $env:TEMP '_qauth')) {'OK'} else {'SKIP'})"
+Write-Host "RESTORE|QODER|AUTH=$(if ($qAuth) {'OK'} else {'SKIP'})"
 Write-Host "RESTORE|USERS|SEEDED=$($profiles -join ',')"
 
 # --- gh CLI token: machine-wide env so ANY user (incl. SSH sessions) has it ---
