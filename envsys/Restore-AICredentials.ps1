@@ -60,7 +60,10 @@ Write-Host "RESTORE|USERS|SEEDED=$($profiles -join ',')"
 # --- gh CLI token: machine-wide env so ANY user (incl. SSH sessions) has it ---
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
   [Environment]::SetEnvironmentVariable('GH_TOKEN', $env:GH_TOKEN_RESTORE, 'Machine')
-  Write-Host 'RESTORE|GH_TOKEN|OK (machine env)'
+  # sshd holds its env block from service start - restart it so new SSH
+  # sessions (incl. future ones) inherit the machine env with GH_TOKEN.
+  Restart-Service sshd -Force -ErrorAction SilentlyContinue
+  Write-Host 'RESTORE|GH_TOKEN|OK (machine env + sshd restarted)'
 }
 
 Write-Host 'RESTORE|BASELINE=DONE'
