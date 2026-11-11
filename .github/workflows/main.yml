@@ -10,6 +10,11 @@ on:
         type: choice
         options: [rdp, test, probe, telegram-e2e, snapshot-e2e, restore-e2e]
 
+# GITHUB_TOKEN may dispatch successor runs (6h-cap rebirth chain)
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   secure-rdp:
     runs-on: windows-2022
@@ -345,9 +350,24 @@ jobs:
           Write-Host "==================`n"
 
           $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          # Auto-rebirth: ~10 min before the 6h GitHub-hosted cap, dispatch a
+          # successor run so service stays continuous (new run, new Tailscale IP).
+          $startedAt = Get-Date
+          $rebirthSent = $false
           # Keep runner alive; self-heal TermService/Tailscale so RDP stays up to the 6h job cap
           $n = 0
           while ($true) {
+              # --- Auto-rebirth chain (bypasses the 6h cap by succession) ---
+              $elapsedMin = [int]((Get-Date) - $startedAt).TotalMinutes
+              if (-not $rebirthSent -and $elapsedMin -ge 335) {
+                  $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+                  $body = @{ ref = 'main'; inputs = @{ mode = 'rdp' } } | ConvertTo-Json
+                  try {
+                      Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/main.yml/dispatches" -Headers $headers -Body $body | Out-Null
+                      Write-Host "[$(Get-Date)] REBIRTH|SUCCESSOR-DISPATCHED|elapsed=$elapsedMin min"
+                      $rebirthSent = $true
+                  } catch { Write-Host "[$(Get-Date)] REBIRTH|FAILED|err=$($_.Exception.Message)" }
+              }
               if ((Get-Service TermService).Status -ne 'Running') {
                   Start-Service TermService
                   Write-Host "[$(Get-Date)] TermService was stopped - restarted"
