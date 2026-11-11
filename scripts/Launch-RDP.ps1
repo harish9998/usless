@@ -14,6 +14,7 @@ param(
   [string]$Workflow = 'win 11 + tailscale + Download.bat script',
   [string]$Password = 'Runner@12345',
   [switch]$New,
+  [switch]$Auto,
   [switch]$Ssh,
   [switch]$Desktop,
   [int]$TimeoutSec = 900
@@ -36,18 +37,19 @@ function Get-Card([int64]$RunId) {
   return $map
 }
 
-# 1. Find or dispatch the run
+# 1. Find or dispatch the run (-Auto: dispatch automatically when none live)
 $runs = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status | ConvertFrom-Json
 $run = @($runs) | Where-Object { $_.status -ne 'completed' } | Select-Object -First 1
+$doDispatch = $New -or $Auto
 if (-not $run) {
-  if ($New) {
+  if ($doDispatch) {
     gh workflow run $Workflow --repo $Repo -f mode=rdp
-    Write-Output 'DISPATCH|STATUS=SENT'
+    Write-Output 'DISPATCH|STATUS=SENT (no live run; booting fresh runner)'
     Start-Sleep -Seconds 20
     $runs = gh run list --repo $Repo --workflow $Workflow --limit 1 --json databaseId,status | ConvertFrom-Json
     $run = @($runs) | Select-Object -First 1
   } else {
-    Write-Warning 'No active run. Use -New to dispatch one.'
+    Write-Warning 'No active run. Use -New (or the rdp command, which auto-dispatches).'
     exit 1
   }
 }
