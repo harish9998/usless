@@ -373,12 +373,20 @@ jobs:
               $elapsedMin = [int]((Get-Date) - $startedAt).TotalMinutes
               if (-not $rebirthSent -and $elapsedMin -ge 335) {
                   $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
-                  $body = @{ ref = 'main'; inputs = @{ mode = 'rdp' } } | ConvertTo-Json
-                  try {
-                      Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/main.yml/dispatches" -Headers $headers -Body $body | Out-Null
-                      Write-Host "[$(Get-Date)] REBIRTH|SUCCESSOR-DISPATCHED|elapsed=$elapsedMin min"
+                  # Chain kill-switch: only continue when repo variable RDP_CHAIN = 'on'
+                  $chain = 'off'
+                  try { $chain = (Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/variables/RDP_CHAIN" -Headers $headers).value } catch { $chain = 'off' }
+                  if ($chain -eq 'on') {
+                      $body = @{ ref = 'main'; inputs = @{ mode = 'rdp' } } | ConvertTo-Json
+                      try {
+                          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/main.yml/dispatches" -Headers $headers -Body $body | Out-Null
+                          Write-Host "[$(Get-Date)] REBIRTH|SUCCESSOR-DISPATCHED|elapsed=$elapsedMin min"
+                          $rebirthSent = $true
+                      } catch { Write-Host "[$(Get-Date)] REBIRTH|FAILED|err=$($_.Exception.Message)" }
+                  } else {
+                      Write-Host "[$(Get-Date)] REBIRTH|SKIPPED (RDP_CHAIN variable not 'on' - single session)"
                       $rebirthSent = $true
-                  } catch { Write-Host "[$(Get-Date)] REBIRTH|FAILED|err=$($_.Exception.Message)" }
+                  }
               }
               if ((Get-Service TermService).Status -ne 'Running') {
                   Start-Service TermService

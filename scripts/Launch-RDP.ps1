@@ -17,6 +17,8 @@ param(
   [switch]$Auto,
   [switch]$Ssh,
   [switch]$Desktop,
+  [switch]$Status,
+  [string[]]$Command,
   [int]$TimeoutSec = 900
 )
 $ErrorActionPreference = 'Stop'
@@ -77,32 +79,45 @@ if (-not $card -or -not $card['address']) { throw "No rdp-connection card after 
 $ip, $user = $card['address'], $card['username']
 if ($card['password']) { $Password = $card['password'] }
 Write-Output "CARD|ip=$ip|user=$user|port=$($card['port'])"
+$sshKey = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
+$sshBase = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-l', $user, $ip)
+if (Test-Path $sshKey) { $sshBase = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-i',$sshKey,'-l', $user, $ip) }
 
-# 3. Reachability sanity check
+# --- rdp status: facts only, no terminal ---
+if ($Status) {
+  Write-Output "STATUS|run=$runId|ip=$ip|user=$user|run_started=$(if ($run.createdAt) { $run.createdAt } else { '?' })"
+  & ssh @sshBase "Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | ForEach-Object { 'CPU=' + [int]$_.Average + '%' }; Get-PSDrive C | ForEach-Object { 'DISK_FREE_GB=' + [math]::Round($_.Free/1GB,1) }; (Get-CimInstance Win32_OperatingSystem) | ForEach-Object { 'RAM_FREE_GB=' + [math]::Round($_.FreePhysicalMemory/1MB/1024,1) + ' UP=' + ((Get-Date) - $_.LastBootUpTime).ToString('hh\:mm') }"
+  exit $LASTEXITCODE
+}
+
+# --- rdp cmd: one-off remote command, no terminal ---
+if ($Command) {
+  $remote = ($Command -join ' ')
+  Write-Output "CMD|$ip|$remote"
+  & ssh @sshBase $remote
+  exit $LASTEXITCODE
+}
+
+# 3. Launch (terminal by default in -Ssh mode; mstsc otherwise)
+if ($Ssh -and -not $Desktop) {
+  # SSH mode: zero side effects - no registry, no cmdkey, no clipboard.
+  Write-Output "CONNECT-SSH|ip=$ip|user=$user|OPENING-TERMINAL"
+  Start-Process ssh -ArgumentList ($sshBase + @('-t')) -Wait:$false
+  Write-Output "DONE|ssh|$ip"
+  exit 0
+}
+
+# --- Desktop (mstsc) path: RDP-specific credential plumbing lives here only ---
 $ok = (Test-NetConnection -ComputerName $ip -Port 3389 -WarningAction SilentlyContinue).TcpTestSucceeded
 if (-not $ok) { throw "RDP port 3389 unreachable on $ip (tailnet/offline?)" }
-
-# 4. Store credentials so mstsc does NOT prompt (ephemeral machine, non-sensitive)
+# Store credentials so mstsc does NOT prompt (ephemeral machine, non-sensitive)
 cmdkey /generic:TERMSRV/$ip /user:$user /pass:$Password | Out-Null
 # Allow saved credentials in mstsc (HKLM needs elevation; best-effort)
 try {
   reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' /v DisablePasswordSaving /t REG_DWORD /d 0 /f | Out-Null
 } catch { Write-Warning 'Could not set DisablePasswordSaving (not elevated) - prompt may still appear.' }
 
-# 5. Clipboard fallback: password ready to paste if mstsc still prompts
-Set-Clipboard -Value $Password
-
-# 6. Launch (terminal by default in -Ssh mode; mstsc otherwise)
-if ($Ssh -and -not $Desktop) {
-  $keyFile = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
-  $sshArgs = @('-o','StrictHostKeyChecking=accept-new')
-  if (Test-Path $keyFile) { $sshArgs = @('-o','StrictHostKeyChecking=accept-new','-i',$keyFile) }
-  Write-Output "CONNECT-SSH|ip=$ip|user=$user|OPENING-TERMINAL"
-  Start-Process ssh -ArgumentList ($sshArgs + @('-l', $user, $ip))
-  Write-Output "DONE|ssh|$ip"
-} else {
-  Write-Output "CONNECT|ip=$ip|user=$user|status=LAUNCHING"
-  Start-Process mstsc.exe -ArgumentList "/v:$ip /w:1280 /h:800"
-  Set-Clipboard -Value $Password  # keep on clipboard in case prompt appears
-  Write-Output "DONE|ip=$ip|user=$user|password-on-clipboard=1"
-}
+Set-Clipboard -Value $Password  # fallback: paste if mstsc still prompts
+Write-Output "CONNECT|ip=$ip|user=$user|status=LAUNCHING"
+Start-Process mstsc.exe -ArgumentList "/v:$ip /w:1280 /h:800"
+Write-Output "DONE|desktop|$ip|password-on-clipboard=1"
