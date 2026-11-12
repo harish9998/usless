@@ -23,18 +23,24 @@ $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source: execute it.' }
 
 function Get-Card([int64]$RunId) {
-  $dir = Join-Path $env:TEMP "rdpcard-$RunId"
-  if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
-  gh run download $RunId --repo $Repo --name "rdp-connection-$RunId" --dir $dir 2>$null | Out-Null
-  if ($LASTEXITCODE -ne 0) { return $null }
-  $card = Join-Path $dir 'rdp-connection.txt'
-  if (-not (Test-Path $card)) { return $null }
-  $map = @{}
-  foreach ($line in Get-Content $card) {
-    $k, $v = $line -split '=', 2
-    if ($v) { $map[$k.Trim()] = $v.Trim() }
-  }
-  return $map
+  # gh writes "no valid artifacts" to STDERR while the runner is still booting.
+  # With EAP=Stop that would kill the wait loop - so soften it locally.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $dir = Join-Path $env:TEMP "rdpcard-$RunId"
+    if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    gh run download $RunId --repo $Repo --name "rdp-connection-$RunId" --dir $dir 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $card = Join-Path $dir 'rdp-connection.txt'
+    if (-not (Test-Path $card)) { return $null }
+    $map = @{}
+    foreach ($line in Get-Content $card) {
+      $k, $v = $line -split '=', 2
+      if ($v) { $map[$k.Trim()] = $v.Trim() }
+    }
+    return $map
+  } finally { $ErrorActionPreference = $prev }
 }
 
 # 1. Find or dispatch the run (-Auto: dispatch automatically when none live)
@@ -59,9 +65,12 @@ Write-Output "RUN|id=$runId|status=$($run.status)"
 # 2. Wait for the connection card artifact (IP + password)
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
 $card = $null
+$waitStart = Get-Date
 while ((Get-Date) -lt $deadline) {
   $card = Get-Card $runId
   if ($card -and $card['address']) { break }
+  $waited = [int]((Get-Date) - $waitStart).TotalSeconds
+  Write-Output ("WAIT|runner booting|elapsed={0}s" -f $waited)
   Start-Sleep -Seconds 20
 }
 if (-not $card -or -not $card['address']) { throw "No rdp-connection card after $TimeoutSec s (artifact = RDP ready beacon)" }
