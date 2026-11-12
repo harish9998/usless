@@ -19,7 +19,11 @@ param(
   [switch]$Desktop,
   [switch]$Status,
   [string[]]$Command,
-  [int]$TimeoutSec = 900
+  [int]$TimeoutSec = 900,
+  # Catch-all so stray args (e.g. "rdp status extra") can never cause a
+  # positional binding error, which hangs some hosts.
+  [Parameter(ValueFromRemainingArguments = $true)]
+  $Extra
 )
 $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source: execute it.' }
@@ -46,7 +50,7 @@ function Get-Card([int64]$RunId) {
 }
 
 # 1. Find or dispatch the run (-Auto: dispatch automatically when none live)
-$runs = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status | ConvertFrom-Json
+$runs = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status,createdAt | ConvertFrom-Json
 $run = @($runs) | Where-Object { $_.status -ne 'completed' } | Select-Object -First 1
 $doDispatch = $New -or $Auto
 if (-not $run) {
@@ -85,8 +89,19 @@ if (Test-Path $sshKey) { $sshBase = @('-o','BatchMode=yes','-o','StrictHostKeyCh
 
 # --- rdp status: facts only, no terminal ---
 if ($Status) {
-  Write-Output "STATUS|run=$runId|ip=$ip|user=$user|run_started=$(if ($run.createdAt) { $run.createdAt } else { '?' })"
-  & ssh @sshBase "Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | ForEach-Object { 'CPU=' + [int]$_.Average + '%' }; Get-PSDrive C | ForEach-Object { 'DISK_FREE_GB=' + [math]::Round($_.Free/1GB,1) }; (Get-CimInstance Win32_OperatingSystem) | ForEach-Object { 'RAM_FREE_GB=' + [math]::Round($_.FreePhysicalMemory/1MB/1024,1) + ' UP=' + ((Get-Date) - $_.LastBootUpTime).ToString('hh\:mm') }"
+  $age = '?'
+  if ($run.createdAt) {
+    try { $age = [int]([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($run.createdAt)).TotalMinutes } catch { $age = '?' }
+  }
+  Write-Output "STATUS|run=$runId|ip=$ip|user=$user|age_min=$age"
+  # Send as -EncodedCommand: immune to ssh/sshd quote-mangling.
+  $script = @'
+Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | ForEach-Object { "CPU=" + [int]$_.Average + "%" }
+Get-PSDrive C | ForEach-Object { "DISK_FREE_GB=" + [math]::Round($_.Free/1GB,1) }
+Get-CimInstance Win32_OperatingSystem | ForEach-Object { "RAM_FREE_GB=" + [math]::Round($_.FreePhysicalMemory/1MB,1) + " RAM_TOTAL_GB=" + [math]::Round($_.TotalVisibleMemorySize/1MB,1) + " UP=" + ((Get-Date) - $_.LastBootUpTime).ToString("hh\:mm") }
+'@
+  $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+  & ssh @sshBase ("powershell -NoProfile -EncodedCommand " + $b64)
   exit $LASTEXITCODE
 }
 
@@ -94,7 +109,9 @@ if ($Status) {
 if ($Command) {
   $remote = ($Command -join ' ')
   Write-Output "CMD|$ip|$remote"
-  & ssh @sshBase $remote
+  # Encoded so quotes/semicolons survive the ssh hop untouched.
+  $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remote))
+  & ssh @sshBase ("powershell -NoProfile -EncodedCommand " + $b64)
   exit $LASTEXITCODE
 }
 
