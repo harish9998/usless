@@ -59,14 +59,19 @@ if (Test-Path $bundleDir) {
   foreach ($zip in Get-ChildItem $bundleDir -Filter '*.zip' -File -ErrorAction SilentlyContinue) {
     foreach ($u in $qoderUsers) {
       $dest = Join-Path $u '.qoder\skills'
+      $ocDest = Join-Path $u '.config\opencode\skills'
       New-Item -ItemType Directory $dest -Force | Out-Null
+      New-Item -ItemType Directory $ocDest -Force | Out-Null
       $tmp = Join-Path $env:TEMP ("_skillx-" + [IO.Path]::GetRandomFileName())
       try {
         Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
-        # Zip layout: <SkillName>/... -> copy the skill folder(s) into skills dir
+        # Zip layout: <SkillName>/... -> copy the skill folder(s) into Qoder AND OpenCode skills dirs
         Get-ChildItem $tmp -Directory | ForEach-Object {
           Copy-Item $_.FullName (Join-Path $dest $_.Name) -Recurse -Force
           Write-Host ("SKILL|deployed={0}|to={1}" -f $_.Name, $u)
+          # OpenCode global skills live in .config\opencode\skills\<name>
+          Copy-Item $_.FullName (Join-Path $ocDest $_.Name) -Recurse -Force
+          Write-Host ("SKILL|opencode={0}|to={1}" -f $_.Name, $ocDest)
         }
       } catch { Write-Host ("SKILL|FAIL|" + $zip.Name + "|" + $_.Exception.Message) }
       finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
