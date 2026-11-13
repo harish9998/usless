@@ -52,6 +52,29 @@ if (Test-Path (Join-Path $skillsDir '.git')) {
 }
 if (Test-Path $skillsDir) { Write-Host "SKILLS|path=$skillsDir" } else { Write-Host 'SKILLS|FAIL' }
 
+Write-Step '2d/6 Qoder skills deploy (bundled zips -> every user profile .qoder\skills)'
+$bundleDir = Join-Path $PSScriptRoot 'skills'
+$qoderUsers = @($env:USERPROFILE, 'C:\Users\RDP') | Where-Object { Test-Path (Split-Path $_ -Parent) } | Select-Object -Unique
+if (Test-Path $bundleDir) {
+  foreach ($zip in Get-ChildItem $bundleDir -Filter '*.zip' -File -ErrorAction SilentlyContinue) {
+    foreach ($u in $qoderUsers) {
+      $dest = Join-Path $u '.qoder\skills'
+      New-Item -ItemType Directory $dest -Force | Out-Null
+      $tmp = Join-Path $env:TEMP ("_skillx-" + [IO.Path]::GetRandomFileName())
+      try {
+        Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
+        # Zip layout: <SkillName>/... -> copy the skill folder(s) into skills dir
+        Get-ChildItem $tmp -Directory | ForEach-Object {
+          Copy-Item $_.FullName (Join-Path $dest $_.Name) -Recurse -Force
+          Write-Host ("SKILL|deployed={0}|to={1}" -f $_.Name, $u)
+        }
+      } catch { Write-Host ("SKILL|FAIL|" + $zip.Name + "|" + $_.Exception.Message) }
+      finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+  }
+  Write-Host 'SKILLS|QODER-DEPLOY=DONE'
+} else { Write-Host 'No envsys\skills bundle dir - skipping Qoder skill deploy.' }
+
 Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
 $dv = (docker version --format '{{.Server.Version}}' 2>$null)
 if ($dv) { Write-Host "ok: docker engine $dv" }
