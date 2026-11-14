@@ -308,19 +308,36 @@ jobs:
           }
           Write-Host "Video Skills|STATUS=READY|DIR_QODER=$skillsDir|DIR_OPencode=$opencodeSkillsDir"
 
-      - name: Install Antigravity CLI
+      - name: Install Antigravity CLI (agy.exe, native windows_amd64)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
-          # Install antigravity.google/cli via curl
-          $installScript = "https://antigravity.google/cli/install.sh"
-          $tempScript = "$env:TEMP\antigravity-cli-install.sh"
+          # install.sh is Unix-only (aborts on MINGW64 Git Bash), so install the
+          # native windows_amd64 build via the CLI updater manifest instead.
           try {
-              Invoke-WebRequest -Uri $installScript -OutFile $tempScript
-              bash $tempScript
-              Write-Host "CLI|STATUS=INSTALLED|URL=$installScript"
+              $m = Invoke-RestMethod -Uri 'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/windows_amd64.json'
+              $dir = 'C:\Antigravity'
+              New-Item -ItemType Directory -Force -Path $dir | Out-Null
+              $exe = Join-Path $dir 'agy.exe'
+              Invoke-WebRequest -Uri $m.url -OutFile $exe -UseBasicParsing
+              $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA512).Hash.ToLower()
+              if ($hash -ne $m.sha512) { throw "SHA512 mismatch: $hash" }
+              # Machine PATH so every RDP session finds agy (registry keeps ExpandString type)
+              $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+              if (($machinePath -split ';') -notcontains $dir) {
+                  $reg = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $true)
+                  $reg.SetValue('Path', "$machinePath;$dir", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                  $reg.Close()
+              }
+              # Smoke test with a watchdog so a chatty binary can never stall the step
+              $verJob = Start-Job -ScriptBlock { param($e) & $e --version 2>&1 } -ArgumentList $exe
+              if (Wait-Job $verJob -Timeout 30) { $verOut = (Receive-Job $verJob | Select-Object -First 3) -join ' ' }
+              else { Stop-Job $verJob; $verOut = '(version check timed out)' }
+              Remove-Job $verJob -Force -ErrorAction SilentlyContinue
+              Write-Host "CLI|STATUS=INSTALLED|VERSION=$($m.version)|EXE=$exe|SMOKE=$verOut"
           } catch {
               Write-Host "CLI|STATUS=FAILED|ERR=$($_.Exception.Message)"
           }
+          exit 0
 
       - name: Environment bootstrap (Telegram snapshots)
         if: ${{ inputs.mode == 'rdp' }}
