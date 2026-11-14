@@ -308,6 +308,27 @@ jobs:
           }
           Write-Host "Video Skills|STATUS=READY|DIR_QODER=$skillsDir|DIR_OPencode=$opencodeSkillsDir"
 
+      - name: Setup Herk Edit Kit (opencode + qoder + antigravity)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          # nateherkai/herk-edit-kit: video-editing skill bundle (HyperFrames).
+          # Clone once, then register a pointer skill in each CLI's skills dir.
+          $kitRoot = 'C:\Work\herk-edit-kit'
+          if (-not (Test-Path "$kitRoot\.git")) {
+              git clone --depth 1 https://github.com/nateherkai/herk-edit-kit.git $kitRoot
+          }
+          $tpl = Get-Content -LiteralPath "${{ github.workspace }}\envsys\HerkEditKitSkill.md" -Raw
+          $skill = $tpl -replace '__KIT_ROOT__', $kitRoot
+          $bases = @($env:USERPROFILE, 'C:\Users\RDP')
+          foreach ($base in $bases) {
+              foreach ($cli in @('.opencode\skills', '.qoder\skills', '.gemini\config\skills')) {
+                  $dir = Join-Path (Join-Path $base $cli) 'herk-edit-kit'
+                  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                  Set-Content -LiteralPath (Join-Path $dir 'SKILL.md') -Value $skill -Encoding utf8
+              }
+          }
+          Write-Host "HerkKit|STATUS=READY|KIT=$kitRoot|SKILL_MD_INSTALLED=6"
+
       - name: Install Antigravity CLI (agy.exe, native windows_amd64)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
