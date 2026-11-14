@@ -144,6 +144,76 @@ jobs:
               Write-Host "Telegram backend: PROVISIONAL (key present; fresh-runner sign-in proof still required)."
           }
 
+      - name: Verify RDP Accessibility (fast TcpClient probe)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          # Test-NetConnection costs ~12s; a raw TcpClient probe with 3x3s
+          # attempts costs ~2s and fails just as honestly.
+          $ok = $false
+          foreach ($i in 1..3) {
+              try {
+                  $c = New-Object Net.Sockets.TcpClient
+                  $r = $c.BeginConnect($env:TAILSCALE_IP, 3389, $null, $null)
+                  if ($r.AsyncWaitHandle.WaitOne(3000) -and $c.Connected) { $ok = $true; $c.Close(); break }
+                  $c.Close()
+              } catch { }
+              Start-Sleep -Seconds 1
+          }
+          if (-not $ok) {
+              Write-Error "TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
+
+      - name: Write RDP connection card (machine-readable IP)
+        if: ${{ inputs.mode == 'rdp' }}
+        env:
+          RDP_PASS_FROM_SECRET: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          # Password lives in the card so the local launcher can auto-login
+          # (cmdkey TERMSRV). Ephemeral 6h machine, nothing sensitive persists.
+          $pw = if (-not [string]::IsNullOrWhiteSpace($env:RDP_PASS_FROM_SECRET)) { $env:RDP_PASS_FROM_SECRET } else { 'Runner@12345' }
+          $card = "$env:RUNNER_TEMP\rdp-connection.txt"
+          @(
+            "address=$env:TAILSCALE_IP",
+            "port=3389",
+            "username=RDP",
+            "password=$pw",
+            "run_id=$env:GITHUB_RUN_ID",
+            "mode=rdp"
+          ) | Out-File -LiteralPath $card -Encoding ascii
+          Get-Content -LiteralPath $card
+          Write-Host "Card written: $card"
+
+      - name: Configure RDP commands (install rdp / rdp new / rdp delete)
+        if: ${{ inputs.mode == 'rdp' }}
+        env:
+          GH_TOKEN_CARD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Installs the rdp command suite into the RDP user's PowerShell profile.
+          # Profile defines: rdp [open|new|delete [-Old <n>]] (see envsys\RdpProfile.ps1)
+          # It reads: C:\Work\rdp-connection.txt (card), C:\Work\.gh-token, C:\Work\.gh-repo
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'C:\Work' | Out-Null
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP\rdp-connection.txt" -Destination 'C:\Work\rdp-connection.txt' -Force
+          Set-Content -LiteralPath 'C:\Work\.gh-repo' -Value $env:GITHUB_REPOSITORY -NoNewline -Encoding ascii
+          Set-Content -LiteralPath 'C:\Work\.gh-token' -Value $env:GH_TOKEN_CARD -NoNewline -Encoding ascii
+          icacls 'C:\Work\.gh-token' /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\Administrators:F' | Out-Null
+          $profileDir = 'C:\Users\RDP\Documents\WindowsPowerShell'
+          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\RdpProfile.ps1" -Destination "$profileDir\Microsoft.PowerShell_profile.ps1" -Force
+          Write-Host "RDP|COMMANDS_CONFIGURED|profile=$profileDir\Microsoft.PowerShell_profile.ps1"
+
+      - name: Upload RDP connection card
+        if: ${{ inputs.mode == 'rdp' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-connection-${{ github.run_id }}
+          path: ${{ runner.temp }}/rdp-connection.txt
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Run LocalDir regression harness (Test-EnvSystem)
         if: ${{ inputs.mode == 'test' }}
         run: |
@@ -376,67 +446,6 @@ jobs:
           $env:TG_API_KEY = "${{ secrets.TG_API_KEY }}"
           powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\envsys\Invoke-EnvBootstrap.ps1' -BackendType TelegramRest -WorkDir 'C:\Work'
           if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: environment bootstrap degraded - continuing with basic RDP." }
-
-      - name: Verify RDP Accessibility
-        if: ${{ inputs.mode == 'rdp' }}
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-
-          # Test connectivity using Test-NetConnection against the Tailscale IP on port 3389
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
-
-      - name: Write RDP connection card (machine-readable IP)
-        if: ${{ inputs.mode == 'rdp' }}
-        env:
-          RDP_PASS_FROM_SECRET: ${{ secrets.RDP_PASSWORD }}
-        run: |
-          # Password lives in the card so the local launcher can auto-login
-          # (cmdkey TERMSRV). Ephemeral 6h machine, nothing sensitive persists.
-          $pw = if (-not [string]::IsNullOrWhiteSpace($env:RDP_PASS_FROM_SECRET)) { $env:RDP_PASS_FROM_SECRET } else { 'Runner@12345' }
-          $card = "$env:RUNNER_TEMP\rdp-connection.txt"
-          @(
-            "address=$env:TAILSCALE_IP",
-            "port=3389",
-            "username=RDP",
-            "password=$pw",
-            "run_id=$env:GITHUB_RUN_ID",
-            "mode=rdp"
-          ) | Out-File -LiteralPath $card -Encoding ascii
-          Get-Content -LiteralPath $card
-          Write-Host "Card written: $card"
-
-      - name: Configure RDP commands (install rdp / rdp new / rdp delete)
-        if: ${{ inputs.mode == 'rdp' }}
-        env:
-          GH_TOKEN_CARD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Installs the rdp command suite into the RDP user's PowerShell profile.
-          # Profile defines: rdp [open|new|delete [-Old <n>]] (see envsys\RdpProfile.ps1)
-          # It reads: C:\Work\rdp-connection.txt (card), C:\Work\.gh-token, C:\Work\.gh-repo
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path 'C:\Work' | Out-Null
-          Copy-Item -LiteralPath "$env:RUNNER_TEMP\rdp-connection.txt" -Destination 'C:\Work\rdp-connection.txt' -Force
-          Set-Content -LiteralPath 'C:\Work\.gh-repo' -Value $env:GITHUB_REPOSITORY -NoNewline -Encoding ascii
-          Set-Content -LiteralPath 'C:\Work\.gh-token' -Value $env:GH_TOKEN_CARD -NoNewline -Encoding ascii
-          icacls 'C:\Work\.gh-token' /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\Administrators:F' | Out-Null
-          $profileDir = 'C:\Users\RDP\Documents\WindowsPowerShell'
-          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\RdpProfile.ps1" -Destination "$profileDir\Microsoft.PowerShell_profile.ps1" -Force
-          Write-Host "RDP|COMMANDS_CONFIGURED|profile=$profileDir\Microsoft.PowerShell_profile.ps1"
-
-      - name: Upload RDP connection card
-        if: ${{ inputs.mode == 'rdp' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: rdp-connection-${{ github.run_id }}
-          path: ${{ runner.temp }}/rdp-connection.txt
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Maintain Connection (stay-alive watchdog)
         if: ${{ inputs.mode == 'rdp' }}
