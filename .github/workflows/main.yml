@@ -293,6 +293,35 @@ jobs:
           # Never fail the run if a blob is absent - baseline degrades gracefully.
           exit 0
 
+      - name: Setup Video Skills (awesome-claude-video-skills)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          # Setup awesome-claude-video-skills for RDP session
+          $skillsDir = "$env:USERPROFILE\.qoder\skills\awesome-claude-video-skills"
+          if (-not (Test-Path $skillsDir)) {
+              git clone https://github.com/zhuyansen/awesome-claude-video-skills.git $skillsDir
+          }
+          # Also set up opencode skills directory
+          $opencodeSkillsDir = "$env:USERPROFILE\.opencode\skills\awesome-claude-video-skills"
+          if (-not (Test-Path $opencodeSkillsDir)) {
+              git clone https://github.com/zhuyansen/awesome-claude-video-skills.git $opencodeSkillsDir
+          }
+          Write-Host "Video Skills|STATUS=READY|DIR_QODER=$skillsDir|DIR_OPencode=$opencodeSkillsDir"
+
+      - name: Install Antigravity CLI
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          # Install antigravity.google/cli via curl
+          $installScript = "https://antigravity.google/cli/install.sh"
+          $tempScript = "$env:TEMP\antigravity-cli-install.sh"
+          try {
+              Invoke-WebRequest -Uri $installScript -OutFile $tempScript
+              bash $tempScript
+              Write-Host "CLI|STATUS=INSTALLED|URL=$installScript"
+          } catch {
+              Write-Host "CLI|STATUS=FAILED|ERR=$($_.Exception.Message)"
+          }
+
       - name: Environment bootstrap (Telegram snapshots)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
@@ -342,6 +371,25 @@ jobs:
           ) | Out-File -LiteralPath $card -Encoding ascii
           Get-Content -LiteralPath $card
           Write-Host "Card written: $card"
+
+      - name: Configure RDP commands (install rdp / rdp new / rdp delete)
+        if: ${{ inputs.mode == 'rdp' }}
+        env:
+          GH_TOKEN_CARD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Installs the rdp command suite into the RDP user's PowerShell profile.
+          # Profile defines: rdp [open|new|delete [-Old <n>]] (see envsys\RdpProfile.ps1)
+          # It reads: C:\Work\rdp-connection.txt (card), C:\Work\.gh-token, C:\Work\.gh-repo
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'C:\Work' | Out-Null
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP\rdp-connection.txt" -Destination 'C:\Work\rdp-connection.txt' -Force
+          Set-Content -LiteralPath 'C:\Work\.gh-repo' -Value $env:GITHUB_REPOSITORY -NoNewline -Encoding ascii
+          Set-Content -LiteralPath 'C:\Work\.gh-token' -Value $env:GH_TOKEN_CARD -NoNewline -Encoding ascii
+          icacls 'C:\Work\.gh-token' /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\Administrators:F' | Out-Null
+          $profileDir = 'C:\Users\RDP\Documents\WindowsPowerShell'
+          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+          Copy-Item -LiteralPath "${{ github.workspace }}\envsys\RdpProfile.ps1" -Destination "$profileDir\Microsoft.PowerShell_profile.ps1" -Force
+          Write-Host "RDP|COMMANDS_CONFIGURED|profile=$profileDir\Microsoft.PowerShell_profile.ps1"
 
       - name: Upload RDP connection card
         if: ${{ inputs.mode == 'rdp' }}
