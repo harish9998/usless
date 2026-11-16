@@ -359,7 +359,9 @@ jobs:
           QODER_AUTH_B64: ${{ secrets.QODER_AUTH_B64 }}
           GH_TOKEN_RESTORE: ${{ secrets.GH_TOKEN }}
           PC_SSH_KEY_B64: ${{ secrets.PC_SSH_KEY_B64 }}
+          PC_SSH_SCOPED_KEY_B64: ${{ secrets.PC_SSH_SCOPED_KEY_B64 }}
           PC_ADDR: ${{ vars.PC_ADDR }}
+          PC_USER: harishjaswal
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Restore-AICredentials.ps1'
           # Never fail the run if a blob is absent - baseline degrades gracefully.

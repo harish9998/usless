@@ -58,25 +58,53 @@ Write-Host "RESTORE|QODER|AUTH=$(if ($qAuth) {'OK'} else {'SKIP'})"
 Write-Host "RESTORE|USERS|SEEDED=$($profiles -join ',')"
 
 # --- gh CLI token: machine-wide env so ANY user (incl. SSH sessions) has it ---
-# --- PC access: restore the runner->PC agent key so the agent can ssh home ---
+# --- PC access: full + scoped keys so runner agent can use PC (files/apps/MCP/tunnels) per policy ---
 if (-not [string]::IsNullOrWhiteSpace($env:PC_SSH_KEY_B64)) {
-  $keyBytes = [Convert]::FromBase64String($env:PC_SSH_KEY_B64)
-  $pcAddr = $env:PC_ADDR
+  $pcAddr = if ($env:PC_ADDR) { $env:PC_ADDR } else { '100.111.187.124' }
+  $pcUser = if ($env:PC_USER) { $env:PC_USER } else { 'harishjaswal' }
   foreach ($u in $profiles) {
-    $sd = Join-Path $u '.ssh'
-    New-Item -ItemType Directory $sd -Force | Out-Null
-    [IO.File]::WriteAllBytes((Join-Path $sd 'pc-agent-ed25519'), $keyBytes)
-    # sshd on Windows requires restrictive perms on private keys
-    icacls (Join-Path $sd 'pc-agent-ed25519') /inheritance:r /grant "$($env:USERNAME):R" | Out-Null
+    $sd = Join-Path $u '.ssh'; New-Item -ItemType Directory $sd -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $sd 'pc-agent-ed25519'), [Convert]::FromBase64String($env:PC_SSH_KEY_B64))
+    if ($env:PC_SSH_SCOPED_KEY_B64) {
+      [IO.File]::WriteAllBytes((Join-Path $sd 'pc-agent-scoped-ed25519'), [Convert]::FromBase64String($env:PC_SSH_SCOPED_KEY_B64))
+    }
+    foreach ($kf in @('pc-agent-ed25519','pc-agent-scoped-ed25519')) {
+      $kp = Join-Path $sd $kf; if (Test-Path $kp) { icacls $kp /inheritance:r /grant "$($env:USERNAME):R" 2>$null | Out-Null }
+    }
   }
-  # One-word helper for the agent: C:\Work\pc.ps1 "command"
   New-Item -ItemType Directory 'C:\Work' -Force | Out-Null
-  $helper = @"
+  # pc.ps1 = FULL access (arbitrary commands, SSH tunnels). Use only when needed.
+  @"
 `$key = Join-Path `$env:USERPROFILE '.ssh\pc-agent-ed25519'
-ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i `$key -l harishjaswal $pcAddr @args
-"@
-  Set-Content 'C:\Work\pc.ps1' $helper -Encoding UTF8
-  Write-Host "RESTORE|PC|KEY=OK addr=$pcAddr (helper: C:\Work\pc.ps1)"
+ssh -o StrictHostKeyChecking=accept-new -i `$key -l $pcUser $pcAddr @args
+"@ | Set-Content 'C:\Work\pc.ps1' -Encoding UTF8
+  # pcx.ps1 = SCOPED access via gateway policy (ls/read/write/run/apps/tunnels-info). Default for agent.
+  @"
+`$key = Join-Path `$env:USERPROFILE '.ssh\pc-agent-scoped-ed25519'
+if (-not (Test-Path `$key)) { `$key = Join-Path `$env:USERPROFILE '.ssh\pc-agent-ed25519' }
+`$cmd = if (`$args.Count -gt 0) { `$args -join ' ' } else { 'help' }
+ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i `$key -l $pcUser $pcAddr `$cmd
+"@ | Set-Content 'C:\Work\pcx.ps1' -Encoding UTF8
+  # pc-tunnel.ps1 = forward a PC localhost port to runner localhost (for MCP/model bridges)
+  @'
+param([Parameter(Mandatory=$true)][int]$Port, [int]$LocalPort = $Port)
+$key = Join-Path $env:USERPROFILE '.ssh\pc-agent-ed25519'
+$addr = '__PC_ADDR__'; $user = '__PC_USER__'
+Write-Output "TUNNEL localhost:$LocalPort -> ${user}@${addr}:127.0.0.1:$Port (Ctrl+C to stop)"
+ssh -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -N -L "${LocalPort}:127.0.0.1:${Port}" -i $key -l $user $addr
+'@.Replace('__PC_ADDR__',$pcAddr).Replace('__PC_USER__',$pcUser) | Set-Content 'C:\Work\pc-tunnel.ps1' -Encoding UTF8
+  # pc-send/get helpers (scp over full key)
+  @'
+param([Parameter(Mandatory=$true)][string]$Local, [string]$Remote = "C:/Users/harishjaswal/Downloads/RDP-Inbox/")
+$key = Join-Path $env:USERPROFILE ".ssh\pc-agent-ed25519"
+scp -o StrictHostKeyChecking=accept-new -i $key $Local "__PC_USER__@__PC_ADDR__:$Remote"
+'@.Replace('__PC_USER__',$pcUser).Replace('__PC_ADDR__',$pcAddr) | Set-Content 'C:\Work\pc-send.ps1' -Encoding UTF8
+  @'
+param([Parameter(Mandatory=$true)][string]$Remote, [string]$Local = ".")
+$key = Join-Path $env:USERPROFILE ".ssh\pc-agent-ed25519"
+scp -o StrictHostKeyChecking=accept-new -i $key "__PC_USER__@__PC_ADDR__:$Remote" $Local
+'@.Replace('__PC_USER__',$pcUser).Replace('__PC_ADDR__',$pcAddr) | Set-Content 'C:\Work\pc-get.ps1' -Encoding UTF8
+  Write-Host "RESTORE|PC|addr=$pcAddr full=OK scoped=$([bool]$env:PC_SSH_SCOPED_KEY_B64) helpers=pc.ps1,pcx.ps1,pc-tunnel.ps1,pc-send.ps1,pc-get.ps1"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
