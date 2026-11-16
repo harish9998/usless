@@ -58,6 +58,27 @@ Write-Host "RESTORE|QODER|AUTH=$(if ($qAuth) {'OK'} else {'SKIP'})"
 Write-Host "RESTORE|USERS|SEEDED=$($profiles -join ',')"
 
 # --- gh CLI token: machine-wide env so ANY user (incl. SSH sessions) has it ---
+# --- PC access: restore the runner->PC agent key so the agent can ssh home ---
+if (-not [string]::IsNullOrWhiteSpace($env:PC_SSH_KEY_B64)) {
+  $keyBytes = [Convert]::FromBase64String($env:PC_SSH_KEY_B64)
+  $pcAddr = $env:PC_ADDR
+  foreach ($u in $profiles) {
+    $sd = Join-Path $u '.ssh'
+    New-Item -ItemType Directory $sd -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $sd 'pc-agent-ed25519'), $keyBytes)
+    # sshd on Windows requires restrictive perms on private keys
+    icacls (Join-Path $sd 'pc-agent-ed25519') /inheritance:r /grant "$($env:USERNAME):R" | Out-Null
+  }
+  # One-word helper for the agent: C:\Work\pc.ps1 "command"
+  New-Item -ItemType Directory 'C:\Work' -Force | Out-Null
+  $helper = @"
+`$key = Join-Path `$env:USERPROFILE '.ssh\pc-agent-ed25519'
+ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i `$key -l harishjaswal $pcAddr @args
+"@
+  Set-Content 'C:\Work\pc.ps1' $helper -Encoding UTF8
+  Write-Host "RESTORE|PC|KEY=OK addr=$pcAddr (helper: C:\Work\pc.ps1)"
+}
+
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
   [Environment]::SetEnvironmentVariable('GH_TOKEN', $env:GH_TOKEN_RESTORE, 'Machine')
   # sshd holds its env block from service start - restart it so new SSH
