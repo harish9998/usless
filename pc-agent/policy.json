@@ -1,0 +1,46 @@
+﻿{
+  "version": 2,
+  "owner": "harishjaswal",
+  "pc_tailscale_ip": "100.111.187.124",
+  "modes": {
+    "full": { "enabled": true, "key": "pc-agent-ed25519", "note": "unrestricted ssh (tunnels, admin) - use pc.ps1" },
+    "scoped": { "enabled": true, "key": "pc-agent-scoped-ed25519", "note": "gateway-enforced - use pcx.ps1 (default for agent)" }
+  },
+  "paths": {
+    "read": ["C:\\Users\\HARISHJASWAL\\Videos","C:\\Users\\HARISHJASWAL\\Documents","C:\\Users\\HARISHJASWAL\\Downloads","C:\\Users\\HARISHJASWAL\\Desktop","C:\\Users\\HARISHJASWAL\\roblox-studio","C:\\Work","C:\\Users\\HARISHJASWAL\\AppData\\Local\\Roblox"],
+    "write": ["C:\\Users\\HARISHJASWAL\\Videos\\RDP-Inbox","C:\\Users\\HARISHJASWAL\\Downloads\\RDP-Inbox","C:\\Work","C:\\Users\\HARISHJASWAL\\Documents\\RDP-Inbox"],
+    "deny": ["C:\\Users\\HARISHJASWAL\\.ssh","C:\\Users\\HARISHJASWAL\\.config\\opencode\\opencode.json","C:\\Users\\HARISHJASWAL\\AppData\\Roaming"]
+  },
+  "apps": {
+    "allowed": ["ffmpeg","ffprobe","python","node","npm","npx","git","pwsh","powershell","code","explorer","blender","robloxstudio","roblox-mcp"],
+    "paths": {
+      "blender": "C:\\Program Files\\Blender Foundation\\Blender 5.3\\blender.exe",
+      "robloxstudio": "C:\\Users\\HARISHJASWAL\\AppData\\Local\\Roblox\\Versions\\version-63eb6055af4e4688\\RobloxStudioBeta.exe",
+      "roblox-mcp": "C:\\Users\\HARISHJASWAL\\AppData\\Local\\Roblox\\mcp.bat",
+      "ffmpeg": "ffmpeg",
+      "ffprobe": "ffprobe",
+      "python": "python",
+      "node": "node",
+      "npm": "npm",
+      "npx": "npx",
+      "git": "git",
+      "pwsh": "pwsh",
+      "powershell": "powershell",
+      "code": "code",
+      "explorer": "explorer"
+    },
+    "gui": ["blender","robloxstudio","code","explorer"],
+    "headless_ok": ["blender","ffmpeg","ffprobe","python","node","npm","npx","git","pwsh","powershell","roblox-mcp"]
+  },
+  "tunnels": {
+    "allowed_ports": [20128,3081,3082,11434],
+    "labels": { "20128": "9router", "3081": "siliconflow-proxy", "3082": "freellmapi", "11434": "ollama" }
+  },
+  "mcp_bridge": {
+    "enabled_servers": ["filesystem","context7","sequential-thinking","research","robloxstudio-mcp"],
+    "note": "robloxstudio-mcp runs on PC tied to Studio; tunnel/use pc.ps1 for remote interaction patterns"
+  },
+  "rendering": {
+    "blender": { "enabled": true, "exe": "C:\\Program Files\\Blender Foundation\\Blender 5.3\\blender.exe", "gpu": "NVIDIA GeForce RTX 3050 4GB", "notes": "headless: blender -b file.blend -E CYCLES -o //out/frame_ -a (or -f N)" }
+  }
+}
