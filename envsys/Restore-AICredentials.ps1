@@ -104,7 +104,23 @@ param([Parameter(Mandatory=$true)][string]$Remote, [string]$Local = ".")
 $key = Join-Path $env:USERPROFILE ".ssh\pc-agent-ed25519"
 scp -o StrictHostKeyChecking=accept-new -i $key "__PC_USER__@__PC_ADDR__:$Remote" $Local
 '@.Replace('__PC_USER__',$pcUser).Replace('__PC_ADDR__',$pcAddr) | Set-Content 'C:\Work\pc-get.ps1' -Encoding UTF8
-  Write-Host "RESTORE|PC|addr=$pcAddr full=OK scoped=$([bool]$env:PC_SSH_SCOPED_KEY_B64) helpers=pc.ps1,pcx.ps1,pc-tunnel.ps1,pc-send.ps1,pc-get.ps1"
+  # Persistent agent note: this is an ephemeral runner, NOT the user's PC
+  @"
+# AGENT ENVIRONMENT (read this first)
+- **You are on an ephemeral GitHub Actions Windows runner** (user like RDP/runneradmin, wiped every ~6h). `C:\Users\HARISHJASWAL\...` does NOT exist here.
+- **The user's real PC** is reachable over Tailscale at $pcUser@$pcAddr (only when PC is on + sshd running). PC files live under `C:\Users\HARISHJASWAL\` on the PC, not here.
+- **To access PC files/apps, ALWAYS use the PC bridge helpers** (do NOT search the runner's local disk for user files):
+  - List/find: `powershell -File C:\Work\pcx.ps1 "ls C:\Users\HARISHJASWAL\Downloads"` (read-allowlisted dirs)
+  - Read: `powershell -File C:\Work\pcx.ps1 "read C:\Users\HARISHJASWAL\path\to\file"`
+  - Search on PC: `powershell -File C:\Work\pc.ps1 "Get-ChildItem C:\Users\HARISHJASWAL -Recurse -Filter '*.zip' -ErrorAction SilentlyContinue | Select-Object -First 20 FullName"`
+  - Copy from PC to runner: `powershell -File C:\Work\pc-get.ps1 "C:/Users/HARISHJASWAL/Downloads/file.zip" "C:\Work\"`
+  - Copy to PC: `powershell -File C:\Work\pc-send.ps1 "C:\Work\out.mp4"` (lands in PC Downloads\RDP-Inbox)
+  - Run PC apps: `powershell -File C:\Work\pcx.ps1 "run blender -b ..."`, `pcx "launch robloxstudio"`, `pcx "render blender <.blend> -f 1"`
+  - Full PC shell (when needed): `powershell -File C:\Work\pc.ps1 "<command>"`
+- **Permissions** are controlled by the user on their PC (`~\.config\pc-agent\policy.json`). If a path/app is DENY'd, tell the user what to allow — do not try to bypass.
+- **Runner-local work dir:** use `C:\Work\` for processing here; copy results back to PC before session ends (runner is ephemeral).
+"@ | Set-Content 'C:\Work\AGENT-ENV.md' -Encoding UTF8
+  Write-Host "RESTORE|PC|addr=$pcAddr full=OK scoped=$([bool]$env:PC_SSH_SCOPED_KEY_B64) helpers=pc.ps1,pcx.ps1,pc-tunnel.ps1,pc-send.ps1,pc-get.ps1 note=C:\Work\AGENT-ENV.md"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
