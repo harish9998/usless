@@ -121,6 +121,9 @@ scp -o StrictHostKeyChecking=accept-new -i $key "__PC_USER__@__PC_ADDR__:$Remote
 - **Runner-local work dir:** use `C:\Work\` for processing here; copy results back to PC before session ends (runner is ephemeral).
 "@ | Set-Content 'C:\Work\AGENT-ENV.md' -Encoding UTF8
   Write-Host "RESTORE|PC|addr=$pcAddr full=OK scoped=$([bool]$env:PC_SSH_SCOPED_KEY_B64) helpers=pc.ps1,pcx.ps1,pc-tunnel.ps1,pc-send.ps1,pc-get.ps1 note=C:\Work\AGENT-ENV.md"
+  # Compute offload helper (runner -> PC) - copy from repo checkout into C:\Work
+  $offloadSrc = Join-Path $PSScriptRoot 'pc-offload.ps1'
+  if (Test-Path $offloadSrc) { Copy-Item $offloadSrc 'C:\Work\pc-offload.ps1' -Force; Write-Host 'RESTORE|PC|OFFLOAD=OK (C:\Work\pc-offload.ps1)' }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {

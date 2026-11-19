@@ -21,6 +21,7 @@ param(
   [switch]$Status,
   [string[]]$Command,
   [switch]$List,
+  [switch]$PrintIp,
   [string]$Id,
   [int]$Index = 0,
   [int]$TimeoutSec = 900,
@@ -123,6 +124,8 @@ if (-not $card -or -not $card['address']) { throw "No rdp-connection card after 
 $ip, $user = $card['address'], $card['username']
 if ($card['password']) { $Password = $card['password'] }
 Write-Output "CARD|ip=$ip|user=$user|port=$($card['port'])"
+# PrintIp: machine-readable single line for PC-side helpers (rdp send/get/shell)
+if ($PrintIp) { Write-Output "IP|$ip|$runId|$user"; exit 0 }
 $sshKey = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
 $sshBase = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-l', $user, $ip)
 if (Test-Path $sshKey) { $sshBase = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-i',$sshKey,'-l', $user, $ip) }
