@@ -1,14 +1,15 @@
 #Requires -Version 5.1
-# Launch-RDP.ps1 - zero-friction RDP: finds the live run, drops the connection
-# card (IP + password), stores credentials, and opens mstsc with NO typing.
+# Launch-RDP.ps1 - multi-run RDP: list/connect/status/cmd across simultaneous runners.
+# Supports "double RDP" - run multiple independent runners in parallel.
 #
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Launch-RDP.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Launch-RDP.ps1 -New
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Launch-RDP.ps1 -Password 'X' (override)
-#
-# Requires: gh CLI authed. Password comes from the run's rdp-connection
-# artifact; fallback password only if the artifact lacks it.
+#   Launch-RDP.ps1                  -> connect to newest live run (dispatch if none)
+#   Launch-RDP.ps1 -New             -> ALWAYS spawn a fresh run alongside existing ones
+#   Launch-RDP.ps1 -List            -> show all live runs (index, id, age, ip/booting)
+#   Launch-RDP.ps1 -Id <runId>      -> target specific run
+#   Launch-RDP.ps1 -Index <n>       -> target by list index (1=newest live)
+#   Launch-RDP.ps1 -Status [-Id/-Index] -> runner stats
+#   Launch-RDP.ps1 -Command "..." [-Id/-Index] -> run command on runner
 param(
   [string]$Repo = 'harish9998/usless',
   [string]$Workflow = 'win 11 + tailscale + Download.bat script',
@@ -19,9 +20,11 @@ param(
   [switch]$Desktop,
   [switch]$Status,
   [string[]]$Command,
+  [switch]$List,
+  [string]$Id,
+  [int]$Index = 0,
   [int]$TimeoutSec = 900,
-  # Catch-all so stray args (e.g. "rdp status extra") can never cause a
-  # positional binding error, which hangs some hosts.
+  # Catch-all so stray args can never cause a positional binding error.
   [Parameter(ValueFromRemainingArguments = $true)]
   $Extra
 )
@@ -29,8 +32,6 @@ $ErrorActionPreference = 'Stop'
 if ($MyInvocation.InvocationName -eq '.') { throw 'Do not dot-source: execute it.' }
 
 function Get-Card([int64]$RunId) {
-  # gh writes "no valid artifacts" to STDERR while the runner is still booting.
-  # With EAP=Stop that would kill the wait loop - so soften it locally.
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
@@ -48,25 +49,64 @@ function Get-Card([int64]$RunId) {
     return $map
   } finally { $ErrorActionPreference = $prev }
 }
+function Get-LiveRuns {
+  $raw = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status,createdAt 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $raw) { return @() }
+  $all = $raw | ConvertFrom-Json
+  return @($all | Where-Object { $_.status -ne 'completed' })
+}
+function Run-AgeMin($r) {
+  if (-not $r -or -not $r.createdAt) { return '?' }
+  try { return [int]([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($r.createdAt)).TotalMinutes } catch { return '?' }
+}
 
-# 1. Find or dispatch the run (-Auto: dispatch automatically when none live)
-$runs = gh run list --repo $Repo --workflow $Workflow --limit 10 --json databaseId,status,createdAt | ConvertFrom-Json
-$run = @($runs) | Where-Object { $_.status -ne 'completed' } | Select-Object -First 1
-$doDispatch = $New -or $Auto
-if (-not $run) {
-  if ($doDispatch) {
-    gh workflow run $Workflow --repo $Repo -f mode=rdp
-    Write-Output 'DISPATCH|STATUS=SENT (no live run; booting fresh runner)'
-    Start-Sleep -Seconds 20
-    $runs = gh run list --repo $Repo --workflow $Workflow --limit 1 --json databaseId,status | ConvertFrom-Json
-    $run = @($runs) | Select-Object -First 1
-  } else {
-    Write-Warning 'No active run. Use -New (or the rdp command, which auto-dispatches).'
-    exit 1
+# 1. Resolve target run (supports multi-run / double RDP)
+$live = Get-LiveRuns
+
+if ($List) {
+  if ($live.Count -eq 0) { Write-Output 'LIST|none (no live runners)'; exit 0 }
+  $i = 0
+  foreach ($r in $live) {
+    $i++; $age = Run-AgeMin $r
+    $c = Get-Card $r.databaseId
+    $ip = if ($c -and $c['address']) { $c['address'] } else { 'booting' }
+    Write-Output ("LIST|[{0}] run={1} status={2} age_min={3} ip={4}" -f $i, $r.databaseId, $r.status, $age, $ip)
+  }
+  exit 0
+}
+
+$run = $null
+if ($Id) {
+  $run = @($live | Where-Object { $_.databaseId -eq [int64]$Id } | Select-Object -First 1)
+  if (-not $run) { $run = [pscustomobject]@{ databaseId = [int64]$Id; status = 'unknown'; createdAt = $null } }
+} elseif ($Index -gt 0) {
+  if ($Index -le $live.Count) { $run = $live[$Index - 1] } else { throw "No live run at index $Index (have $($live.Count)). Use -List." }
+} elseif ($New) {
+  # Always spawn a fresh runner alongside existing ones (double RDP).
+  gh workflow run $Workflow --repo $Repo -f mode=rdp
+  Write-Output 'DISPATCH|STATUS=SENT (spawning additional runner; existing runs untouched)'
+  Start-Sleep -Seconds 20
+  $run = @(Get-LiveRuns) | Select-Object -First 1
+  if (-not $run) { throw 'Dispatch sent but no live run appeared' }
+} else {
+  $run = @($live) | Select-Object -First 1
+  $doDispatch = $Auto
+  if (-not $run) {
+    if ($doDispatch) {
+      gh workflow run $Workflow --repo $Repo -f mode=rdp
+      Write-Output 'DISPATCH|STATUS=SENT (no live run; booting fresh runner)'
+      Start-Sleep -Seconds 20
+      $run = @(Get-LiveRuns) | Select-Object -First 1
+    } else {
+      Write-Warning 'No active run. Use -New to spawn one (or rdp command which auto-dispatches).'
+      exit 1
+    }
   }
 }
-$runId = if ($run) { $run.databaseId } else { 0 }
-Write-Output "RUN|id=$runId|status=$($run.status)"
+
+$runId = [int64]$run.databaseId
+$liveNow = Get-LiveRuns
+Write-Output ("RUN|id={0}|status={1}|live_total={2}" -f $runId, $run.status, $liveNow.Count)
 
 # 2. Wait for the connection card artifact (IP + password)
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -79,7 +119,7 @@ while ((Get-Date) -lt $deadline) {
   Write-Output ("WAIT|runner booting|elapsed={0}s" -f $waited)
   Start-Sleep -Seconds 20
 }
-if (-not $card -or -not $card['address']) { throw "No rdp-connection card after $TimeoutSec s (artifact = RDP ready beacon)" }
+if (-not $card -or -not $card['address']) { throw "No rdp-connection card after $TimeoutSec s (run=$runId)" }
 $ip, $user = $card['address'], $card['username']
 if ($card['password']) { $Password = $card['password'] }
 Write-Output "CARD|ip=$ip|user=$user|port=$($card['port'])"
