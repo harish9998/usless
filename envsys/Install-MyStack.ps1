@@ -31,7 +31,7 @@ if (Test-Path $manifest) {
 
 Write-Step '2b/6 AI CLIs (npm global: opencode + Qoder CN/INTL, idempotent)'
 $npmCache = (npm ls -g --depth=0 2>$null | Out-String)
-$cliPkgs  = @('opencode-ai', '@qoder-ai/qodercli', '@qodercn-ai/qoderclicn')
+$cliPkgs  = @('opencode-ai', '@qoder-ai/qodercli', '@qodercn-ai/qoderclicn', 'omniroute')
 foreach ($p in $cliPkgs) {
   if ($npmCache -notmatch ([regex]::Escape($p))) {
     Write-Host "installing CLI: $p"
@@ -93,6 +93,24 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
   $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
 }
 Write-Host ("MEDIA|ffmpeg=" + $(if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { (ffmpeg -version 2>&1 | Select-Object -First 1) } else { 'MISSING' }))
+
+Write-Step '2f/6 OmniRoute CLI aliases (omni / omnirouter -> omniroute)'
+if (Get-Command omniroute -ErrorAction SilentlyContinue) {
+  foreach ($pro in $profiles) {
+    $aliasFile = Join-Path $pro 'Documents\WindowsPowerShell\Microsoft.WindowsPowerShell_profile.ps1'
+    if (Test-Path (Split-Path $aliasFile -Parent)) {
+      $aliasBlock = @'
+# omniroute aliases
+if (Get-Command omniroute -ErrorAction SilentlyContinue -CommandType Application) {
+  Set-Alias -Name omni -Value omniroute -ErrorAction SilentlyContinue
+  Set-Alias -Name omnirouter -Value omniroute -ErrorAction SilentlyContinue
+}
+'@
+      if (-not (Select-String -Path $aliasFile -Pattern 'Set-Alias -Name omni ' -Quiet -ErrorAction SilentlyContinue)) { Add-Content $aliasFile $aliasBlock }
+    }
+  }
+  Write-Host 'OMNI|aliases=OK'
+} else { Write-Host 'OMNI|not installed - skip aliases' }
 
 Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
 $dv = (docker version --format '{{.Server.Version}}' 2>$null)
