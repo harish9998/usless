@@ -52,33 +52,47 @@ if (Test-Path (Join-Path $skillsDir '.git')) {
 }
 if (Test-Path $skillsDir) { Write-Host "SKILLS|path=$skillsDir" } else { Write-Host 'SKILLS|FAIL' }
 
-Write-Step '2d/6 Qoder skills deploy (bundled zips -> every user profile .qoder\skills)'
+Write-Step '2d/6 Bundled skills -> Qoder + OpenCode (every profile)'
 $bundleDir = Join-Path $PSScriptRoot 'skills'
 $qoderUsers = @($env:USERPROFILE, 'C:\Users\RDP') | Where-Object { Test-Path (Split-Path $_ -Parent) } | Select-Object -Unique
 if (Test-Path $bundleDir) {
   foreach ($zip in Get-ChildItem $bundleDir -Filter '*.zip' -File -ErrorAction SilentlyContinue) {
+    # Skill name comes from the zip filename -> handles both zip layouts:
+    #   a) zip contains <Name>/...   b) zip contains files at root
+    $name = [IO.Path]::GetFileNameWithoutExtension($zip.Name)
     foreach ($u in $qoderUsers) {
-      $dest = Join-Path $u '.qoder\skills'
-      $ocDest = Join-Path $u '.config\opencode\skills'
-      New-Item -ItemType Directory $dest -Force | Out-Null
-      New-Item -ItemType Directory $ocDest -Force | Out-Null
       $tmp = Join-Path $env:TEMP ("_skillx-" + [IO.Path]::GetRandomFileName())
       try {
         Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
-        # Zip layout: <SkillName>/... -> copy the skill folder(s) into Qoder AND OpenCode skills dirs
-        Get-ChildItem $tmp -Directory | ForEach-Object {
-          Copy-Item $_.FullName (Join-Path $dest $_.Name) -Recurse -Force
-          Write-Host ("SKILL|deployed={0}|to={1}" -f $_.Name, $u)
-          # OpenCode global skills live in .config\opencode\skills\<name>
-          Copy-Item $_.FullName (Join-Path $ocDest $_.Name) -Recurse -Force
-          Write-Host ("SKILL|opencode={0}|to={1}" -f $_.Name, $ocDest)
+        $items = @(Get-ChildItem $tmp -Force)
+        $src = $tmp
+        if ($items.Count -eq 1 -and $items[0].PSIsContainer -and $items[0].Name -eq $name) { $src = $items[0].FullName }
+        foreach ($sub in @('.qoder\skills', '.config\opencode\skills')) {
+          $dest = Join-Path $u "$sub\$name"
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+          New-Item -ItemType Directory $dest -Force | Out-Null
+          Copy-Item "$src\*" $dest -Recurse -Force
+          Write-Host ("SKILL|deployed={0}|to={1}" -f $name, $dest)
         }
       } catch { Write-Host ("SKILL|FAIL|" + $zip.Name + "|" + $_.Exception.Message) }
       finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
     }
   }
   Write-Host 'SKILLS|QODER-DEPLOY=DONE'
-} else { Write-Host 'No envsys\skills bundle dir - skipping Qoder skill deploy.' }
+} else { Write-Host 'No envsys\skills bundle dir - skipping skill deploy.' }
+
+Write-Step '2e/6 Media tools (ffmpeg/ffprobe) - required by video skills'
+if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+  $choco = 'C:\ProgramData\chocolatey\bin\choco.exe'
+  if (Test-Path $choco) {
+    Write-Host 'Installing ffmpeg via choco...'
+    & $choco install ffmpeg -y --no-progress 2>&1 | Select-Object -Last 2
+  } elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+    winget install -e --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements | Out-Null
+  }
+  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
+}
+Write-Host ("MEDIA|ffmpeg=" + $(if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { (ffmpeg -version 2>&1 | Select-Object -First 1) } else { 'MISSING' }))
 
 Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
 $dv = (docker version --format '{{.Server.Version}}' 2>$null)
