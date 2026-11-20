@@ -112,31 +112,38 @@ if (Get-Command omniroute -ErrorAction SilentlyContinue -CommandType Application
   Write-Host 'OMNI|aliases=OK'
 } else { Write-Host 'OMNI|not installed - skip aliases' }
 
-Write-Step '3/6 Docker (detect first: GHA images ship it, never reinstall blindly)'
-$dv = (docker version --format '{{.Server.Version}}' 2>$null)
-if ($dv) { Write-Host "ok: docker engine $dv" }
-else {
-  Write-Host 'Docker engine missing - installing Docker Desktop...'
-  winget install -e --id Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements | Out-Null
-  Start-Service com.docker.service -ErrorAction SilentlyContinue
-}
+Write-Step '3/6 Docker (skipped by default - lean render box; set RDP_FULL_STACK=on to enable)'
+$full = ($env:RDP_FULL_STACK -eq 'on')
+if ($full) {
+  $dv = (docker version --format '{{.Server.Version}}' 2>$null)
+  if ($dv) { Write-Host "ok: docker engine $dv" }
+  else {
+    Write-Host 'Docker engine missing - installing Docker Desktop...'
+    winget install -e --id Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements | Out-Null
+    Start-Service com.docker.service -ErrorAction SilentlyContinue
+  }
+} else { Write-Host 'Docker SKIPPED (lean mode)' }
 
-Write-Step '4/6 Containers (recreated; only volumes/data persist via snapshots)'
-$compose = Join-Path $WorkDir 'docker\compose.yml'
-if ((Test-Path $compose) -and (Get-Command docker -ErrorAction SilentlyContinue)) {
-  docker compose -f $compose up -d 2>&1 | Select-Object -Last 3
-} else { Write-Host 'No docker\compose.yml - skipping containers.' }
+Write-Step '4/6 Containers (skipped in lean mode)'
+if ($full) {
+  $compose = Join-Path $WorkDir 'docker\compose.yml'
+  if ((Test-Path $compose) -and (Get-Command docker -ErrorAction SilentlyContinue)) {
+    docker compose -f $compose up -d 2>&1 | Select-Object -Last 3
+  } else { Write-Host 'No docker\compose.yml - skipping containers.' }
+} else { Write-Host 'Containers SKIPPED (lean mode)' }
 
-Write-Step '5/6 Automation (OpenClaw + agents; state lives in C:\Work, restored)'
-$start = Join-Path $WorkDir 'Start-MyAutomation.ps1'
-if (Test-Path $start) {
-  powershell -NoProfile -ExecutionPolicy Bypass -File $start
-} else { Write-Host 'No Start-MyAutomation.ps1 - skipping automation start.' }
+Write-Step '5/6 Automation (skipped in lean mode)'
+if ($full) {
+  $start = Join-Path $WorkDir 'Start-MyAutomation.ps1'
+  if (Test-Path $start) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File $start
+  } else { Write-Host 'No Start-MyAutomation.ps1 - skipping automation start.' }
+} else { Write-Host 'Automation SKIPPED (lean mode)' }
 
 Write-Step '6/6 Health'
 $checks = @(
   @{ n = 'Workspace'; ok = (Test-Path $WorkDir) },
-  @{ n = 'Docker'; ok = [bool](Get-Command docker -ErrorAction SilentlyContinue) },
+  @{ n = 'Docker'; ok = ($full -or [bool](Get-Command docker -ErrorAction SilentlyContinue)) },
   @{ n = 'Manifest'; ok = ((-not (Test-Path $manifest)) -or $true) }
 )
 foreach ($c in $checks) {

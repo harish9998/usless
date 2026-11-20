@@ -367,8 +367,14 @@ jobs:
           # Never fail the run if a blob is absent - baseline degrades gracefully.
           exit 0
 
-      - name: Setup Video Skills (awesome-claude-video-skills)
+      - name: Optimize runner for dev/render (lean boot)
         if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Optimize-RDP.ps1'
+          exit 0
+
+      - name: Setup Video Skills (awesome-claude-video-skills)
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_FULL_STACK == 'on' }}
         run: |
           # Setup awesome-claude-video-skills for RDP session
           $skillsDir = "$env:USERPROFILE\.qoder\skills\awesome-claude-video-skills"
@@ -383,7 +389,7 @@ jobs:
           Write-Host "Video Skills|STATUS=READY|DIR_QODER=$skillsDir|DIR_OPencode=$opencodeSkillsDir"
 
       - name: Setup Herk Edit Kit (opencode + qoder + antigravity)
-        if: ${{ inputs.mode == 'rdp' }}
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_FULL_STACK == 'on' }}
         run: |
           # nateherkai/herk-edit-kit: video-editing skill bundle (HyperFrames).
           # Clone once, then register a pointer skill in each CLI's skills dir.
@@ -404,7 +410,7 @@ jobs:
           Write-Host "HerkKit|STATUS=READY|KIT=$kitRoot|SKILL_MD_INSTALLED=6"
 
       - name: Install Antigravity CLI (agy.exe, native windows_amd64)
-        if: ${{ inputs.mode == 'rdp' }}
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_FULL_STACK == 'on' }}
         run: |
           # install.sh is Unix-only (aborts on MINGW64 Git Bash), so install the
           # native windows_amd64 build via the CLI updater manifest instead.
@@ -435,7 +441,7 @@ jobs:
           exit 0
 
       - name: Environment bootstrap (Telegram snapshots)
-        if: ${{ inputs.mode == 'rdp' }}
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_FULL_STACK == 'on' }}
         run: |
           # Full reconstruction from Telegram Drive. Best-effort: needs TG_API_KEY secret
           # AND the Telegram Drive app running signed-in on this runner; skips cleanly otherwise.
