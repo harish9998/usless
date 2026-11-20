@@ -94,6 +94,14 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 }
 Write-Host ("MEDIA|ffmpeg=" + $(if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { (ffmpeg -version 2>&1 | Select-Object -First 1) } else { 'MISSING' }))
 
+Write-Step '2e2/6 Cloudflared (for omni-tunnel / remote access)'
+if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+  $choco = 'C:\ProgramData\chocolatey\bin\choco.exe'
+  if (Test-Path $choco) { & $choco install cloudflared -y --no-progress 2>&1 | Select-Object -Last 2 }
+  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
+}
+Write-Host ("CLOUDFLARED=" + $(if (Get-Command cloudflared -ErrorAction SilentlyContinue) { (cloudflared --version 2>&1 | Select-Object -First 1) } else { 'MISSING' }))
+
 Write-Step '2f/6 OmniRoute CLI aliases (omni / omnirouter -> omniroute)'
 if (Get-Command omniroute -ErrorAction SilentlyContinue) {
   foreach ($pro in $profiles) {

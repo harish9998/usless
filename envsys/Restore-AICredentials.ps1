@@ -23,7 +23,9 @@ function Restore-Zip {
 }
 
 # Which user profiles to seed: current (runneradmin) + the SSH/RDP user
-$profiles = @($env:USERPROFILE, 'C:\Users\RDP') | Where-Object { Test-Path (Split-Path $_ -Parent) } | Select-Object -Unique
+# Seed ALL real user profiles (SSH user may be 'rdp.<hostname>', not 'RDP')
+$skip = @('Public','Default','Default User','All Users','installer')
+$profiles = @($env:USERPROFILE, 'C:\Users\RDP') + @(Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue | Where-Object { $skip -notcontains $_.Name } | ForEach-Object { $_.FullName }) | Select-Object -Unique | Where-Object { Test-Path $_ }
 
 # --- opencode: config (providers/keys) + auth store ---
 $ocCfg  = Restore-Zip $env:OPENCODE_CONFIG_B64 (Join-Path $env:TEMP '_occfg')
@@ -124,6 +126,8 @@ scp -o StrictHostKeyChecking=accept-new -i $key "__PC_USER__@__PC_ADDR__:$Remote
   # Compute offload helper (runner -> PC) - copy from repo checkout into C:\Work
   $offloadSrc = Join-Path $PSScriptRoot 'pc-offload.ps1'
   if (Test-Path $offloadSrc) { Copy-Item $offloadSrc 'C:\Work\pc-offload.ps1' -Force; Write-Host 'RESTORE|PC|OFFLOAD=OK (C:\Work\pc-offload.ps1)' }
+  $tunnelSrc = Join-Path $PSScriptRoot 'omni-tunnel.ps1'
+  if (Test-Path $tunnelSrc) { Copy-Item $tunnelSrc 'C:\Work\omni-tunnel.ps1' -Force; Write-Host 'RESTORE|OMNI|TUNNEL=OK (C:\Work\omni-tunnel.ps1)' }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
