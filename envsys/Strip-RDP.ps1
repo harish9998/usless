@@ -1,50 +1,47 @@
 #Requires -Version 5.1
-# Strip-RDP.ps1 - remove preinstalled GitHub-image apps NOT needed for video render/dev.
-# Frees DISK (these apps don't use CPU/RAM unless running). Idempotent + safe:
-# never touches Git, Node, Python, gh, Tailscale, Chrome, ffmpeg, ImageMagick, npm, C:\Work.
+# Strip-RDP.ps1 - remove preinstalled GitHub-image app FOLDERS not needed for render/dev.
+# Direct folder deletion (fast, reliable) instead of slow MSI uninstallers.
+# Never touches Git, Node, Python, gh, Tailscale, Chrome, ffmpeg, ImageMagick, npm, C:\Work.
 $ErrorActionPreference = 'SilentlyContinue'
 function Say([string]$m) { Write-Host "STRIP|$m" }
 
-# DisplayName patterns to uninstall (regex). Everything else is left alone.
-$junk = @(
-  '^Rtools', '^R for Windows', '^MongoDB', '^PostgreSQL', '^MySQL',
-  '^Unity Hub', '^Epic Games Launcher', '^Epic Online Services',
-  '^Strawberry Perl', '^AWS Command Line', '^AWS SAM', '^Mercurial ',
-  '^TortoiseSVN', '^sbt ', '^WiX Toolset', '^CMake', '^Inno Setup',
-  '^Mozilla Firefox', '^OpenSSL ', '^mongosh'
+# Only these exact known-unused app folders. Keep list enforced implicitly (not in this list).
+$targets = @(
+  'C:\rtools45',                              # R build tools 3.1GB
+  'C:\Strawberry',                            # Perl 543MB
+  'C:\Program Files\MongoDB',                 # MongoDB 1.7GB
+  'C:\Program Files\MySQL',                   # MySQL 577MB
+  'C:\Program Files\PostgreSQL',              # PostgreSQL 1GB
+  'C:\Program Files\R',                       # R 189MB
+  'C:\Program Files\Unity Hub',               # Unity 594MB
+  'C:\Program Files (x86)\Epic Games',        # Epic launcher 256MB
+  'C:\Program Files\Epic Online Services',
+  'C:\Program Files (x86)\Epic Online Services',
+  'C:\Program Files\Mozilla Firefox',         # 361MB
+  'C:\Program Files\OpenSSL',                 # 837MB
+  'C:\Program Files\CMake',                   # 134MB
+  'C:\Program Files\mongosh',                 # MongoDB shell 198MB
+  'C:\Program Files (x86)\Inno Setup 6',
+  'C:\Program Files\Mercurial',
+  'C:\Program Files (x86)\AWS CLI',
+  'C:\Program Files\AWS CLI',
+  'C:\Program Files (x86)\AWS SAM CLI',
+  'C:\Program Files\AWS SAM CLI',
+  'C:\Program Files\Git\mingw64\share\doc\Git',  # optional docs only
+  'C:\hostedtoolcache\windows\Python\3.11.9',    # old Python versions (keep 3.12/3.15)
+  'C:\hostedtoolcache\windows\Python\3.13.17',
+  'C:\hostedtoolcache\windows\Python\3.14.10'
 )
-$keep = @('Git','GitHub CLI','Node.js','Python','Tailscale','Google Chrome','ImageMagick','ffmpeg','Microsoft Visual','PowerShell','Windows','OpenSSH','VCRedist','.NET','C++','7-Zip','curl','jq','gh')
-$junk = $junk | Where-Object { $_ -ne '^Git ' }
-
-$paths = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
-$all = Get-ItemProperty $paths -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName }
-$removed = 0
-foreach ($app in $all) {
-  $n = $app.DisplayName
-  $isKeep = $keep | Where-Object { $n -like "*$_*" }
-  if ($isKeep) { continue }
-  $match = $junk | Where-Object { $n -match $_ }
-  if (-not $match) { continue }
-  # Skip anything with no uninstall string (can't remove cleanly)
-  if (-not $app.UninstallString) { continue }
-  Say "REMOVING|$n"
-  try {
-    if ($app.UninstallString -match 'MsiExec') {
-      $guid = [regex]::Match($app.UninstallString, '\{[0-9A-Fa-f-]+\}').Value
-      if ($guid) { Start-Process msiexec.exe -ArgumentList "/X $guid /quiet /norestart" -Wait -ErrorAction SilentlyContinue }
-    } elseif ($app.UninstallString -match 'unins000|uninstall-postgresql|helper\.exe') {
-      $exe = ([regex]::Match($app.UninstallString, '"([^"]+)"')).Groups[1].Value
-      if (-not $exe) { $exe = $app.UninstallString }
-      if (Test-Path $exe) { Start-Process -FilePath $exe -ArgumentList '/VERYSILENT /NORESTART' -Wait -ErrorAction SilentlyContinue }
-    }
-    $removed++
-  } catch { Say "FAIL|$n|$($_.Exception.Message)" }
-}
-Say "REMOVED=$removed"
-# Delete leftover top-level folders of removed apps (best-effort, safe paths only)
-foreach ($d in @('C:\rtools45','C:\Strawberry','C:\Program Files\MongoDB','C:\Program Files\MySQL','C:\Program Files\PostgreSQL','C:\Program Files\R','C:\Program Files\Unity Hub','C:\Program Files (x86)\Epic Games','C:\Program Files\Mercurial','C:\Program Files\CMake','C:\Program Files\OpenSSL','C:\Program Files\mongosh','C:\Program Files\Mozilla Firefox','C:\Program Files (x86)\Inno Setup 6')) {
-  if (Test-Path $d) { cmd /c "rd /s /q `"$d`"" 2>$null; if (-not (Test-Path $d)) { Say "FOLDER-GONE|$d" } }
+$freed = 0
+foreach ($d in $targets) {
+  if (-not (Test-Path $d)) { continue }
+  # Safety: never delete if a process is running from it
+  $busy = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) }
+  if ($busy) { Say "SKIP-BUSY|$d"; continue }
+  $size = (Get-ChildItem $d -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+  cmd /c "rd /s /q `"$d`"" 2>$null
+  if (-not (Test-Path $d)) { $freed += $size; Say "REMOVED|$d|$([math]::Round($size/1MB,0))MB" }
 }
 $free = [math]::Round((Get-PSDrive C).Free/1GB,1)
-Say "DISK_FREE_GB=$free"
+Say "FREED_MB=$([math]::Round($freed/1MB,0)) DISK_FREE_GB=$free"
 Say 'DONE'
