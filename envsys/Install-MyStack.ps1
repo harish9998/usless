@@ -65,14 +65,29 @@ if (Test-Path $bundleDir) {
       try {
         Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
         $items = @(Get-ChildItem $tmp -Force)
-        $src = $tmp
-        if ($items.Count -eq 1 -and $items[0].PSIsContainer -and $items[0].Name -eq $name) { $src = $items[0].FullName }
-        foreach ($sub in @('.qoder\skills', '.config\opencode\skills')) {
-          $dest = Join-Path $u "$sub\$name"
-          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
-          New-Item -ItemType Directory $dest -Force | Out-Null
-          Copy-Item "$src\*" $dest -Recurse -Force
-          Write-Host ("SKILL|deployed={0}|to={1}" -f $name, $dest)
+        # Detect multi-skill bundle: several top folders each containing SKILL.md
+        $skillFolders = @($items | Where-Object { $_.PSIsContainer -and (Test-Path (Join-Path $_.FullName 'SKILL.md')) })
+        if ($skillFolders.Count -gt 1) {
+          foreach ($sf in $skillFolders) {
+            foreach ($sub in @('.qoder\skills', '.config\opencode\skills')) {
+              $dest = Join-Path $u "$sub\$($sf.Name)"
+              if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+              New-Item -ItemType Directory $dest -Force | Out-Null
+              Copy-Item "$($sf.FullName)\*" $dest -Recurse -Force
+            }
+          }
+          Write-Host ("SKILL|bundle={0}|deployed={1}|to={2}" -f $zip.Name, $skillFolders.Count, $u)
+        } else {
+          # Single skill zip: either <Name>/... or files at root
+          $src = $tmp
+          if ($items.Count -eq 1 -and $items[0].PSIsContainer -and $items[0].Name -eq $name) { $src = $items[0].FullName }
+          foreach ($sub in @('.qoder\skills', '.config\opencode\skills')) {
+            $dest = Join-Path $u "$sub\$name"
+            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+            New-Item -ItemType Directory $dest -Force | Out-Null
+            Copy-Item "$src\*" $dest -Recurse -Force
+            Write-Host ("SKILL|deployed={0}|to={1}" -f $name, $dest)
+          }
         }
       } catch { Write-Host ("SKILL|FAIL|" + $zip.Name + "|" + $_.Exception.Message) }
       finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
@@ -120,19 +135,17 @@ if (Get-Command omniroute -ErrorAction SilentlyContinue -CommandType Application
   Write-Host 'OMNI|aliases=OK'
 } else { Write-Host 'OMNI|not installed - skip aliases' }
 
-Write-Step '3/6 Docker (skipped by default - lean render box; set RDP_FULL_STACK=on to enable)'
-$full = ($env:RDP_FULL_STACK -eq 'on')
-if ($full) {
-  $dv = (docker version --format '{{.Server.Version}}' 2>$null)
-  if ($dv) { Write-Host "ok: docker engine $dv" }
-  else {
-    Write-Host 'Docker engine missing - installing Docker Desktop...'
-    winget install -e --id Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements | Out-Null
-    Start-Service com.docker.service -ErrorAction SilentlyContinue
-  }
-} else { Write-Host 'Docker SKIPPED (lean mode)' }
+Write-Step '3/6 Docker (ensure engine - important dev tool, always on)'
+# GitHub windows images ship Docker; just make sure the service is up (no reinstall).
+$svc = Get-Service com.docker.service -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -ne 'Running') { Start-Service com.docker.service -ErrorAction SilentlyContinue }
+$dv = (docker version --format '{{.Server.Version}}' 2>$null)
+if ($dv) { Write-Host "ok: docker engine $dv" }
+elseif (Get-Command docker -ErrorAction SilentlyContinue) { Write-Host 'docker CLI present, engine not responding (normal if service disabled)' }
+else { Write-Host 'docker CLI missing - install via winget/choco if needed' }
 
 Write-Step '4/6 Containers (skipped in lean mode)'
+$full = ($env:RDP_FULL_STACK -eq 'on')
 if ($full) {
   $compose = Join-Path $WorkDir 'docker\compose.yml'
   if ((Test-Path $compose) -and (Get-Command docker -ErrorAction SilentlyContinue)) {
