@@ -373,6 +373,13 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Optimize-RDP.ps1'
           exit 0
 
+      - name: Strip unused preinstalled apps (disk cleanup)
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_STRIP_APPS != 'off' }}
+        timeout-minutes: 20
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Strip-RDP.ps1'
+          exit 0
+
       - name: Setup Video Skills (awesome-claude-video-skills)
         if: ${{ inputs.mode == 'rdp' && vars.RDP_FULL_STACK == 'on' }}
         run: |
