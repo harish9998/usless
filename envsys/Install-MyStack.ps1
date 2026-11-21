@@ -54,7 +54,7 @@ if (Test-Path $skillsDir) { Write-Host "SKILLS|path=$skillsDir" } else { Write-H
 
 Write-Step '2d/6 Bundled skills -> Qoder + OpenCode (every profile)'
 $bundleDir = Join-Path $PSScriptRoot 'skills'
-$qoderUsers = @($env:USERPROFILE, 'C:\Users\RDP') | Where-Object { Test-Path (Split-Path $_ -Parent) } | Select-Object -Unique
+$qoderUsers = @($env:USERPROFILE, 'C:\Users\RDP') + @(Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users','installer') } | ForEach-Object { $_.FullName }) | Select-Object -Unique | Where-Object { Test-Path $_ }
 if (Test-Path $bundleDir) {
   foreach ($zip in Get-ChildItem $bundleDir -Filter '*.zip' -File -ErrorAction SilentlyContinue) {
     # Skill name comes from the zip filename -> handles both zip layouts:
