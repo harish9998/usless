@@ -12,7 +12,7 @@
 #   Launch-RDP.ps1 -Command "..." [-Id/-Index] -> run command on runner
 param(
   [string]$Repo = 'harish9998/usless',
-  [string]$Workflow = 'win 11 + tailscale + Download.bat script',
+  [string]$Workflow = 'main.yml',
   [string]$Password = 'Runner@12345',
   [switch]$New,
   [switch]$Auto,

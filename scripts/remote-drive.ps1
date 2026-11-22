@@ -26,6 +26,7 @@ if ($Action -eq 'status') {
   "SMBV1=$(Get-SmbV1State)"
   exit 0
 }
+# Runner must be resolved before auto (auto needs its IP to remap)
 $runner = Resolve-Runner -Target $Target -AllowDispatch:$AllowDispatch -Repo $Repo
 Write-Output "RUNNER|ip=$($runner.Ip)|run=$($runner.RunId)"
 
@@ -38,6 +39,12 @@ if ($tcp) {
 }
 Write-Output "SMB|port445=$tcp|server_running=$smbRemote"
 if ($Action -eq 'auto') {
+  # If R: is already healthy, don't even touch it (survives discovery hiccups).
+  $healthy = Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue
+  if ($healthy -and $healthy.Status -eq 'OK' -and (Test-Path "$env:USERPROFILE\.usless\smb-cred.blob")) {
+    Write-Output "DRIVE|auto|$Drive|$($healthy.RemotePath)|already-connected"
+    exit 0
+  }
   # Auto-remount R: to the current runner using DPAPI-encrypted stored credential.
   if (-not $smbRemote) { Write-Output "DRIVE|auto|SKIP|SMB unavailable on $($runner.Ip)"; exit 0 }
   # Read credential from DPAPI-encrypted blob (only this Windows user can decrypt it).
