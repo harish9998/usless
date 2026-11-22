@@ -373,7 +373,7 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Deploy-HybridWorker.ps1'
           exit 0
 
-      - name: Setup SMB remote workspace share (R: drive)
+      - name: "Setup SMB remote workspace share (R: drive)"
         if: ${{ inputs.mode == 'rdp' && vars.RDP_VIRTUAL_DRIVE != 'off' }}
         env:
           SMB_SHARE_PASSWORD: ${{ secrets.SMB_SHARE_PASSWORD }}

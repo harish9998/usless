@@ -128,6 +128,8 @@ scp -o StrictHostKeyChecking=accept-new -i $key "__PC_USER__@__PC_ADDR__:$Remote
   if (Test-Path $offloadSrc) { Copy-Item $offloadSrc 'C:\Work\pc-offload.ps1' -Force; Write-Host 'RESTORE|PC|OFFLOAD=OK (C:\Work\pc-offload.ps1)' }
   $tunnelSrc = Join-Path $PSScriptRoot 'omni-tunnel.ps1'
   if (Test-Path $tunnelSrc) { Copy-Item $tunnelSrc 'C:\Work\omni-tunnel.ps1' -Force; Write-Host 'RESTORE|OMNI|TUNNEL=OK (C:\Work\omni-tunnel.ps1)' }
+  $bridgeSrc = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\bridge.ps1'
+  if (Test-Path $bridgeSrc) { Copy-Item $bridgeSrc 'C:\Work\bridge.ps1' -Force; Write-Host 'RESTORE|BRIDGE=OK (C:\Work\bridge.ps1 - bidirectional file bridge)' }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN_RESTORE)) {
