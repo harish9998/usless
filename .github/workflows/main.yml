@@ -367,6 +367,12 @@ jobs:
           # Never fail the run if a blob is absent - baseline degrades gracefully.
           exit 0
 
+      - name: Deploy hybrid worker (remote compute)
+        if: ${{ inputs.mode == 'rdp' && vars.RDP_HYBRID != 'off' }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Deploy-HybridWorker.ps1'
+          exit 0
+
       - name: Optimize runner for dev/render (lean boot)
         if: ${{ inputs.mode == 'rdp' }}
         run: |
