@@ -59,6 +59,16 @@ if ($Action -eq 'auto') {
   }
   $m = Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue
   Write-Output "DRIVE|auto|$Drive|$($m.RemotePath)|$($m.Status)"
+  # Persistent visible details: info file on the drive root + desktop shortcut with run number
+  try {
+    $info = "REMOTE RDP WORKSPACE`nRun ID   : $($runner.RunId)`nTailscale: $($runner.Ip)`nDrive    : $Drive -> \\$($runner.Ip)\RemoteWorkspace`n`nFolders: incoming (uploads) / jobs (submitted jobs + logs) / worker (worker scripts) / projects (remote code) / artifacts (results)`nCommands: rdp monitor | rdp jobs | rdp pull <job-id> | rdp drive status`n"
+    [IO.File]::WriteAllText("$Drive\_RDP_INFO.txt", $info, [Text.Encoding]::UTF8)
+    $desk = [Environment]::GetFolderPath('Desktop')
+    $sh = New-Object -ComObject WScript.Shell
+    $sc = $sh.CreateShortcut("$desk\RDP Workspace (run $($runner.RunId)).lnk")
+    $sc.TargetPath = "$Drive\"; $sc.Description = "Remote workspace - run $($runner.RunId) at $($runner.Ip)"; $sc.Save()
+    Write-Output 'DRIVE|details=info-file+desktop-shortcut'
+  } catch { Write-Output "DRIVE|details=skip|$($_.Exception.Message)" }
   exit 0
 }
 if ($Action -eq 'check') {
