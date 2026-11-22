@@ -11,6 +11,20 @@ param(
 )
 . (Join-Path $PSScriptRoot 'remote-common.ps1')
 
+# Keep R: VISIBLE in File Explorer (idempotent, called on every auto)
+function Keep-DriveVisible([object]$RunInfo, [string]$Drive) {
+  try {
+    $sh = New-Object -ComObject Shell.Application
+    foreach ($p in @("$Drive\", "$Drive\incoming", "$Drive\jobs")) {
+      $ns = $sh.NameSpace($p); if ($ns) { try { $ns.Self.InvokeVerb('pintohome') } catch {} }
+    }
+    $startup = [Environment]::GetFolderPath('Startup')
+    $deskLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "RDP Workspace (run $($RunInfo.RunId)).lnk"
+    if (Test-Path $deskLnk) { Copy-Item $deskLnk (Join-Path $startup 'RDP Workspace.lnk') -Force }
+    Write-Output 'DRIVE|visible=pinned-quick-access+startup-shortcut'
+  } catch { Write-Output "DRIVE|visible=skip|$($_.Exception.Message)" }
+}
+
 # SMB security preflight: ensure SMBv1 disabled (never enable it)
 function Get-SmbV1State { (Get-SmbServerConfiguration -ErrorAction SilentlyContinue).EnableSMB1Protocol }
 
@@ -43,6 +57,7 @@ if ($Action -eq 'auto') {
   $healthy = Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue
   if ($healthy -and $healthy.Status -eq 'OK' -and (Test-Path "$env:USERPROFILE\.usless\smb-cred.blob")) {
     Write-Output "DRIVE|auto|$Drive|$($healthy.RemotePath)|already-connected"
+    Keep-DriveVisible $runner $Drive
     exit 0
   }
   # Auto-remount R: to the current runner using DPAPI-encrypted stored credential.
@@ -69,6 +84,7 @@ if ($Action -eq 'auto') {
     $sc.TargetPath = "$Drive\"; $sc.Description = "Remote workspace - run $($runner.RunId) at $($runner.Ip)"; $sc.Save()
     Write-Output 'DRIVE|details=info-file+desktop-shortcut'
   } catch { Write-Output "DRIVE|details=skip|$($_.Exception.Message)" }
+  Keep-DriveVisible $runner $Drive
   exit 0
 }
 if ($Action -eq 'check') {
