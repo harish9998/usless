@@ -338,19 +338,6 @@ jobs:
           if ($code -ne 0) { Write-Error "Restore E2E FAILED - see TEST| lines above."; exit 1 }
           Write-Host "RESTORE-E2E|STATUS=READY"
 
-      - name: Setup personal stack (auto)
-        if: ${{ inputs.mode == 'rdp' }}
-        run: |
-          # Runs YOUR stack installer if C:\Work has it (restored), else the repo
-          # copy (fresh runner). Edit envsys\Install-MyStack.ps1 once, applied every rebirth.
-          if (Test-Path 'C:\Work\Install-MyStack.ps1') {
-              powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\Install-MyStack.ps1'
-          } elseif (Test-Path '${{ github.workspace }}\envsys\Install-MyStack.ps1') {
-              powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Install-MyStack.ps1' -WorkDir 'C:\Work'
-          } else {
-              Write-Host "No Install-MyStack.ps1 anywhere - skipping."
-          }
-
       - name: Restore AI credentials (login-free boot)
         if: ${{ inputs.mode == 'rdp' }}
         env:
@@ -380,6 +367,19 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Setup-RemoteShare.ps1'
           exit 0
+
+      - name: Setup personal stack (auto) - AFTER bridge is ready
+        if: ${{ inputs.mode == 'rdp' }}
+        timeout-minutes: 20
+        run: |
+          # Heavy installs (npm/ffmpeg/omniroute) run LAST so bridge + credentials are ready first.
+          if (Test-Path 'C:\Work\Install-MyStack.ps1') {
+              powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\Install-MyStack.ps1'
+          } elseif (Test-Path '${{ github.workspace }}\envsys\Install-MyStack.ps1') {
+              powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Install-MyStack.ps1' -WorkDir 'C:\Work'
+          } else {
+              Write-Host "No Install-MyStack.ps1 anywhere - skipping."
+          }
 
       - name: Optimize runner for dev/render (lean boot)
         if: ${{ inputs.mode == 'rdp' }}

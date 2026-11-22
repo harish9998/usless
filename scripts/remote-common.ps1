@@ -42,8 +42,10 @@ function Test-RunnerSsh([object]$Runner) {
 # Run a PowerShell script block remotely, encoded (quote-safe). Returns stdout lines.
 function Invoke-RemoteScript([object]$Runner, [string]$Script) {
   $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
-  $out = & ssh @(New-SshArgs $Runner 30) "powershell -NoProfile -EncodedCommand $b64" 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "Remote command failed: $($out -join ' ')" }
+  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $out = & ssh @(New-SshArgs $Runner 30) "powershell -NoProfile -EncodedCommand $b64" 2>$null
+  $ErrorActionPreference = $prev
+  if ($LASTEXITCODE -ne 0) { throw "Remote command failed (exit $LASTEXITCODE)" }
   return $out
 }
 function Invoke-RemoteFs([object]$Runner, [string]$Verb, [string]$Path, [string]$Dest = '') {
