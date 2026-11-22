@@ -15,6 +15,9 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\usless\scripts\remote
 ## Runner setup (automatic on boot)
 `.github/workflows/main.yml` step “Deploy hybrid worker” runs `envsys/Deploy-HybridWorker.ps1`, creating `C:\RemoteWorkspace\...` and `worker.ps1`. Gate: `RDP_HYBRID` variable (absent = on; set `off` to disable).
 
+## Virtual R: drive (auto-mount)
+On each runner boot, `Setup-RemoteShare.ps1` creates the `wsreader` account (password from the `SMB_SHARE_PASSWORD` repo secret), shares `C:\RemoteWorkspace` to it, disables SMBv1, and restricts port 445 to Tailnet. On your PC, `rdp` silently runs `remote-drive.ps1 -Action auto`, which remounts `R:` to the current runner's Tailnet IP (reconnecting automatically after rebirth). The credential is a DPAPI-encrypted blob at `~/.usless/smb-cred.blob` created once by `scripts\Setup-LocalDriveCredential.ps1` — never in a script. Disable with `gh variable set RDP_VIRTUAL_DRIVE --body off`.
+
 ## OpenCode MCP bridge (optional, read-only tools)
 ```json
 {

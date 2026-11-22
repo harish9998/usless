@@ -61,5 +61,21 @@ T 'mcp:lists_6_tools' {
   $r = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python (Join-Path $repo 'pc-agent\mcp\hybrid_mcp.py')
   ($r | ConvertFrom-Json).result.tools.Count -eq 6
 }
+# 6. Virtual drive: local mapping + DPAPI credential round-trip
+T 'drive:mapped_or_capable' {
+  $d = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\remote-drive.ps1') -Action status
+  "$d" -match 'DRIVE\|R:'
+}
+T 'drive:setups_parse' {
+  $e=$null; $t=$null
+  [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'envsys\Setup-RemoteShare.ps1'),[ref]$t,[ref]$e)
+  $e.Count -eq 0
+}
+T 'drive:dpapi_roundtrip' {
+  $f = "$env:USERPROFILE\.usless\smb-cred.blob"
+  if (-not (Test-Path $f)) { return $false }
+  $p = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\Secure-Credential.ps1') -Action read 2>$null
+  $p.Length -ge 8
+}
 "RESULT|pass=$pass|fail=$fail"
 if ($fail -gt 0) { exit 1 }

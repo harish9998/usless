@@ -3,7 +3,7 @@
 # Usage: remote-drive.ps1 -Action status|mount|unmount|sync|check [-Target 1] [-AllowDispatch]
 #        remote-drive.ps1 -Action sync -Direction push|pull -Local <path> -Remote <path>
 param(
-  [ValidateSet('status','mount','unmount','sync','check')][string]$Action = 'status',
+  [ValidateSet('status','mount','unmount','sync','check','auto')][string]$Action = 'status',
   [ValidateSet('push','pull')][string]$Direction = 'push',
   [string]$Local, [string]$Remote = 'C:\RemoteWorkspace\incoming',
   [string]$Drive = 'R:', [string]$Target = '1', [switch]$AllowDispatch,
@@ -37,6 +37,23 @@ if ($tcp) {
   $smbRemote = $probe -match 'True'
 }
 Write-Output "SMB|port445=$tcp|server_running=$smbRemote"
+if ($Action -eq 'auto') {
+  # Auto-remount R: to the current runner using DPAPI-encrypted stored credential.
+  if (-not $smbRemote) { Write-Output "DRIVE|auto|SKIP|SMB unavailable on $($runner.Ip)"; exit 0 }
+  # Read credential from DPAPI-encrypted blob (only this Windows user can decrypt it).
+  $pw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Secure-Credential.ps1') -Action read 2>$null
+  if (-not $pw -or "$pw".Length -lt 8) { Write-Output "DRIVE|auto|SKIP|no credential (run scripts\Setup-LocalDriveCredential.ps1 once)"; exit 0 }
+  $shareUser = 'wsreader'
+  $remotePath = "\\$($runner.Ip)\RemoteWorkspace"
+  $existing = Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue
+  if ($existing -and $existing.RemotePath -ne $remotePath) { Remove-SmbMapping -LocalPath $Drive -Force -ErrorAction SilentlyContinue; Write-Output "DRIVE|auto|remapping (runner changed)" }
+  if (-not (Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue)) {
+    New-SmbMapping -LocalPath $Drive -RemotePath $remotePath -UserName $shareUser -Password "$pw" -Persistent:$true -ErrorAction Stop | Out-Null
+  }
+  $m = Get-SmbMapping -LocalPath $Drive -ErrorAction SilentlyContinue
+  Write-Output "DRIVE|auto|$Drive|$($m.RemotePath)|$($m.Status)"
+  exit 0
+}
 if ($Action -eq 'check') {
   if ($smbRemote) { Write-Output 'SMB|FEASIBLE (authenticated share possible)' } else { Write-Output 'SMB|NOT-FEASIBLE - use SFTP fallback (rdp peer send/get)' }
   exit 0
