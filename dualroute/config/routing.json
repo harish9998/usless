@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "updatedAt": "",
+  "policy": {
+    "freeOnlyByDefault": true,
+    "allowPaid": false,
+    "paidOptInRequired": true,
+    "maxRetries": 2,
+    "maxDelegations": 1,
+    "escalateOnEconomyFailure": true
+  },
+  "roles": {
+    "default_economy": {
+      "preferredIds": ["opencode/hy4-flash-free", "hy4-flash-free"],
+      "requirements": { "free": true, "tool": true },
+      "selection": "preferred-first-then-best-free"
+    },
+    "preferred_free_specialist": {
+      "preferredIds": ["opencode/deepseek-v4.1-flash-free", "deepseek-v4.1-flash-free", "mistral/deepseek-v4-1-flash-1017"],
+      "requirements": { "free": true, "tool": true, "minContext": 32000 },
+      "selection": "preferred-first-then-best-free"
+    },
+    "best_free_coding": {
+      "preferredIds": [],
+      "requirements": { "free": true, "tool": true },
+      "selection": "highest-ctx-then-reasoning"
+    },
+    "best_free_reasoning": {
+      "preferredIds": [],
+      "requirements": { "free": true, "tool": true },
+      "selection": "reasoning-first-then-ctx"
+    },
+    "best_available_fallback": {
+      "preferredIds": [],
+      "requirements": { "tool": true },
+      "selection": "cheapest-then-ctx"
+    },
+    "optional_paid_specialist": {
+      "preferredIds": [],
+      "requirements": { "tool": true, "mustBePaid": true },
+      "selection": "best-paid",
+      "enabled": false
+    }
+  },
+  "routing": {
+    "easy": "default_economy",
+    "moderate": "default_economy",
+    "difficult": "preferred_free_specialist",
+    "complex": "best_free_coding",
+    "critical": "preferred_free_specialist",
+    "explicit_user_model": "respect"
+  },
+  "health": {
+    "unavailableTtlMinutes": 60,
+    "rateLimitedTtlMinutes": 15,
+    "failureThreshold": 2
+  }
+}
