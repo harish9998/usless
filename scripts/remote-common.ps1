@@ -32,11 +32,19 @@ function Get-SshKey {
   if (-not (Test-Path $k)) { throw "SSH key missing: $k" }
   return $k
 }
+function Clear-StaleKey([string]$Ip) {
+  $kh = Join-Path $env:USERPROFILE '.ssh\known_hosts'
+  if (-not (Test-Path $kh)) { return }
+  $lines = @(Get-Content $kh -ErrorAction SilentlyContinue)
+  $kept = @($lines | Where-Object { $_ -notmatch [regex]::Escape($Ip) })
+  if ($kept.Count -ne $lines.Count) { [IO.File]::WriteAllLines($kh, $kept) }
+}
 function New-SshArgs([object]$Runner, [int]$Timeout = 20) {
+  Clear-StaleKey $Runner.Ip
   return @('-o','BatchMode=yes','-o',"ConnectTimeout=$Timeout",'-o','StrictHostKeyChecking=accept-new','-i',(Get-SshKey),'-l',$Runner.User,$Runner.Ip)
 }
 function Test-RunnerSsh([object]$Runner) {
-  $out = & ssh @(New-SshArgs $Runner) "Write-Output HYBRID-SSH-OK" 2>&1
+  $out = & ssh @(New-SshArgs $Runner) "Write-Output HYBRID-SSH-OK" 2>$null
   return ($LASTEXITCODE -eq 0 -and ($out -join ' ') -match 'HYBRID-SSH-OK')
 }
 # Run a PowerShell script block remotely, encoded (quote-safe). Returns stdout lines.
