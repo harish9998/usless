@@ -368,11 +368,22 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File '${{ github.workspace }}\envsys\Setup-RemoteShare.ps1'
           exit 0
 
+      - name: Keep-alive (starts BEFORE heavy installs - prevents SSH reset on step failure)
+        if: ${{ inputs.mode == 'rdp' }}
+        run: |
+          # Heartbeat file proves the runner is alive even if later steps fail.
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          $ip = (& $ts ip -4 2>$null | Select-Object -First 1)
+          "KEEPALIVE|ip=$ip|started=$(Get-Date -Format o)" | Out-File 'C:\Work\runner-alive.txt' -Encoding UTF8
+          Write-Output "KEEPALIVE|runner up|ip=$ip"
+
       - name: Setup personal stack (auto) - AFTER bridge is ready
         if: ${{ inputs.mode == 'rdp' }}
-        timeout-minutes: 20
+        continue-on-error: true
+        timeout-minutes: 12
         run: |
           # Heavy installs (npm/ffmpeg/omniroute) run LAST so bridge + credentials are ready first.
+          # continue-on-error: a slow/failing npm must NEVER kill the runner or reset SSH.
           if (Test-Path 'C:\Work\Install-MyStack.ps1') {
               powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Work\Install-MyStack.ps1'
           } elseif (Test-Path '${{ github.workspace }}\envsys\Install-MyStack.ps1') {
